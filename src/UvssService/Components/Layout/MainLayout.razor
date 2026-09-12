@@ -1,0 +1,14 @@
+@inherits LayoutComponentBase
+
+<div class="h-screen w-full flex flex-col bg-[#fafafa] overflow-hidden">
+    <AppHeader />
+    <div class="flex-1 min-h-0 overflow-y-auto">
+        @Body
+    </div>
+</div>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>

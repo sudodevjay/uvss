@@ -1,0 +1,34 @@
+bin/
+obj/
+*.user
+.vs/
+# Tailwind CLI tooling -- reinstalled via `npm install`, not versioned;
+# generated CSS is committed (see src/UvssService/wwwroot/css/tailwind.css)
+# so the app runs without an npm build step, but rebuild it after any
+# class changes in Home.razor via `npm run build:css`.
+node_modules/
+# Live daily capture output -- grows every day, not something to version
+captured_driver/
+captured_anpr/
+captured_undervehicle/
+# Vehicle registry is reference data, but this is a local dev copy --
+# don't want a dev machine's test entries checked in.
+data/vehicle_registry.json
+
+# Python conversion/training tooling -- regenerate the venv with
+# `pip install -r requirements.txt` (or see model_conversion's own notes);
+# output/ and weights_extracted/ are intermediate/duplicate conversion
+# artifacts (the real output lives in src/UvssService/weights/); the
+# synthetic foreign-object dataset and its training runs are reproducible
+# via generate_synthetic_dataset.py (fixed seed) + train_and_export.py.
+model_conversion/convenv/
+model_conversion/output/
+model_conversion/weights_extracted/
+model_conversion/foreign_object_training/images/
+model_conversion/foreign_object_training/labels/
+model_conversion/foreign_object_training/runs/
+model_conversion/foreign_object_training/*.cache
+model_conversion/foreign_object_training/train_log.txt
+# Stock ultralytics COCO-pretrained checkpoint, auto-downloaded on first
+# training run -- not project-specific, no need to version.
+model_conversion/foreign_object_training/yolov8n.pt

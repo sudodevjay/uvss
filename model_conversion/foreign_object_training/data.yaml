@@ -1,0 +1,5 @@
+path: D:/bhikaji/bhikajianpr/uvss-service/model_conversion/foreign_object_training
+train: images/train
+val: images/val
+names:
+  0: foreign_object

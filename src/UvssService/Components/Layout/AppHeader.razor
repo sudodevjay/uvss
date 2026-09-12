@@ -1,0 +1,109 @@
+@* Shared top nav across all 5 pages (Live Dashboard / Scan History /
+   Vehicle Registry / Analytics Dashboard / Lane Setup) -- rendered once by
+   MainLayout so every page gets the same header with the current route
+   highlighted via NavLink's built-in active-route matching. Logout is still
+   cosmetic (no real auth exists yet).
+
+   @rendermode InteractiveServer here (not just on individual pages) is what
+   lets the Entry/Exit loop status below update live -- MainLayout/Routes.razor
+   don't declare a render mode themselves, so without this directive
+   AppHeader would render once as static HTML and never update again. *@
+@rendermode InteractiveServer
+@implements IDisposable
+@inject UvssService.Lanes.LaneStateStore LaneStateStore
+
+<header class="flex items-center gap-6 min-h-16 py-1.5 px-4 flex-none bg-[#ececec] border-b border-[#ccc] font-sans">
+    <div class="flex items-center gap-2.5 flex-none">
+        <div class="w-9 h-9 rounded-lg bg-[#1a5fb4] flex items-center justify-center flex-none">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="white" stroke-width="1.8" stroke-linejoin="round">
+                <path d="M12 3l7 2.5v5c0 4.5-3 8-7 9.5-4-1.5-7-5-7-9.5v-5z" />
+                <path d="M9 12l2 2 4-4.5" stroke-linecap="round" />
+            </svg>
+        </div>
+        <div class="leading-[1.05]">
+            <div class="font-extrabold text-[0.95rem] text-[#111] tracking-wide">UVSS</div>
+            <div class="font-extrabold text-[0.95rem] text-[#111] tracking-wide">SYSTEM</div>
+        </div>
+    </div>
+
+    <nav class="flex items-center gap-1">
+        <NavLink href="/" Match="NavLinkMatch.All"
+                 class="px-3 py-1.5 rounded text-sm font-medium text-[#555] hover:text-[#222] hover:bg-[#e2e2e2] border border-transparent"
+                 ActiveClass="!text-[#1a5fb4] !bg-[#eaf1fb] !border-[#1a5fb4] font-semibold">
+            Live Dashboard
+        </NavLink>
+        <NavLink href="/scan-history"
+                 class="px-3 py-1.5 rounded text-sm font-medium text-[#555] hover:text-[#222] hover:bg-[#e2e2e2] border border-transparent"
+                 ActiveClass="!text-[#1a5fb4] !bg-[#eaf1fb] !border-[#1a5fb4] font-semibold">
+            Scan History
+        </NavLink>
+        <NavLink href="/vehicle-registry"
+                 class="px-3 py-1.5 rounded text-sm font-medium text-[#555] hover:text-[#222] hover:bg-[#e2e2e2] border border-transparent"
+                 ActiveClass="!text-[#1a5fb4] !bg-[#eaf1fb] !border-[#1a5fb4] font-semibold">
+            Vehicle Registry
+        </NavLink>
+        <NavLink href="/analytics"
+                 class="px-3 py-1.5 rounded text-sm font-medium text-[#555] hover:text-[#222] hover:bg-[#e2e2e2] border border-transparent"
+                 ActiveClass="!text-[#1a5fb4] !bg-[#eaf1fb] !border-[#1a5fb4] font-semibold">
+            Analytics Dashboard
+        </NavLink>
+        <NavLink href="/lane-setup"
+                 class="px-3 py-1.5 rounded text-sm font-medium text-[#555] hover:text-[#222] hover:bg-[#e2e2e2] border border-transparent"
+                 ActiveClass="!text-[#1a5fb4] !bg-[#eaf1fb] !border-[#1a5fb4] font-semibold">
+            Lane Setup
+        </NavLink>
+    </nav>
+
+    <!-- Entry/exit loop status -- compact traffic-light strip: a thin
+         colour-coded left border (not a full boxed badge) plus a small dot,
+         one row per lane per loop, stacked two rows tall (entry above
+         exit). Refreshed continuously by LaneWorkerHostedService's
+         loop-status poller regardless of whether a pass is in progress
+         (see LaneState.SetLoopEngaged). The dot never stops pulsing
+         (Tailwind's animate-pulse) -- only its colour flips green/red with
+         the loop's actual state -- so it always reads as "live", not just
+         "on/off at the moment you looked". -->
+    <div class="flex flex-col gap-0.5 flex-none">
+        @foreach (var lane in LaneStateStore.All)
+        {
+            var lanePrefix = LaneStateStore.All.Count > 1 ? $"{lane.LaneName.ToUpperInvariant()} " : "";
+            <div class="flex items-center gap-1.5 bg-white border-l-4 @(lane.EntryLoopEngaged ? "border-l-[#2c7a2c]" : "border-l-[#c23b1f]") pl-2 pr-3 py-0.5 text-[0.7rem] text-[#555] whitespace-nowrap leading-tight">
+                <span class="w-2 h-2 rounded-full animate-pulse flex-none @(lane.EntryLoopEngaged ? "bg-[#39d353]" : "bg-[#c23b1f]")"></span>
+                @lanePrefix ENTRY
+                <span class="font-bold @(lane.EntryLoopEngaged ? "text-[#2c7a2c]" : "text-[#c23b1f]")">@(lane.EntryLoopEngaged ? "ENGAGED" : "DISENGAGED")</span>
+            </div>
+            <div class="flex items-center gap-1.5 bg-white border-l-4 @(lane.ExitLoopEngaged ? "border-l-[#2c7a2c]" : "border-l-[#c23b1f]") pl-2 pr-3 py-0.5 text-[0.7rem] text-[#555] whitespace-nowrap leading-tight">
+                <span class="w-2 h-2 rounded-full animate-pulse flex-none @(lane.ExitLoopEngaged ? "bg-[#39d353]" : "bg-[#c23b1f]")"></span>
+                @lanePrefix EXIT
+                <span class="font-bold @(lane.ExitLoopEngaged ? "text-[#2c7a2c]" : "text-[#c23b1f]")">@(lane.ExitLoopEngaged ? "ENGAGED" : "DISENGAGED")</span>
+            </div>
+        }
+    </div>
+
+    <div class="ml-auto flex items-center gap-2 flex-none">
+        <a href="javascript:void(0)" title="No real auth is wired up yet -- cosmetic only"
+           class="bg-white border border-[#c23b1f] text-[#c23b1f] hover:bg-[#c23b1f] hover:text-white rounded px-3 py-1.5 text-xs font-semibold cursor-pointer">
+            Logout
+        </a>
+    </div>
+</header>
+
+@code {
+    protected override void OnInitialized()
+    {
+        foreach (var lane in LaneStateStore.All)
+        {
+            lane.Changed += OnChanged;
+        }
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        foreach (var lane in LaneStateStore.All)
+        {
+            lane.Changed -= OnChanged;
+        }
+    }
+}

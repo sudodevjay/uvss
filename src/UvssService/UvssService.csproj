@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.29.0" />
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260627" />
+    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="weights\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Real Basler pylon SDK integration (BaslerAreaScanCamera): optional,
+       machine-specific, so it must never break the build on a machine
+       without the SDK installed (like this dev box, which has neither the
+       SDK nor the camera attached).
+
+       On the machine with the camera physically attached: install Basler's
+       official "pylon Camera Software Suite" from baslerweb.com, then set
+       PylonDotNetDir to wherever ITS installer put Basler.Pylon.dll (the
+       exact folder varies by pylon version/architecture; check under
+       "...\pylon (version)\Development\DotNet\..." and pick the folder
+       matching net8.0/x64, or the closest available target). Either edit
+       the default guess below to match, or set it as a real environment
+       variable (PylonDotNetDir) before building; an env var of the same
+       name overrides this default automatically, no file edit needed.
+
+       When PylonDotNetDir points at a real Basler.Pylon.dll, this adds the
+       reference AND defines PYLON_AVAILABLE, which switches
+       BaslerAreaScanCamera.cs from its placeholder to the real
+       implementation (see that file). Without it, the project builds
+       exactly as before and that class stays a graceful placeholder. -->
+  <PropertyGroup>
+    <PylonDotNetDir Condition="'$(PylonDotNetDir)' == '' AND Exists('C:\Program Files\Basler\pylon\Development\Assemblies\Basler.Pylon\net8.0\x64')">C:\Program Files\Basler\pylon\Development\Assemblies\Basler.Pylon\net8.0\x64</PylonDotNetDir>
+    <PylonDotNetDir Condition="'$(PylonDotNetDir)' == '' AND Exists('C:\Program Files\Basler\pylon 7\Development\DotNet\x64\net8.0')">C:\Program Files\Basler\pylon 7\Development\DotNet\x64\net8.0</PylonDotNetDir>
+    <PylonDotNetDir Condition="'$(PylonDotNetDir)' == '' AND Exists('C:\Program Files\Basler\pylon 7\Development\DotNet\x64\netstandard2.0')">C:\Program Files\Basler\pylon 7\Development\DotNet\x64\netstandard2.0</PylonDotNetDir>
+    <PylonDotNetDir Condition="'$(PylonDotNetDir)' == '' AND Exists('C:\Program Files\Basler\pylon 6\Development\DotNet\x64\netstandard2.0')">C:\Program Files\Basler\pylon 6\Development\DotNet\x64\netstandard2.0</PylonDotNetDir>
+    <PylonAvailable Condition="'$(PylonDotNetDir)' != '' AND Exists('$(PylonDotNetDir)\Basler.Pylon.dll')">true</PylonAvailable>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(PylonAvailable)' == 'true'">
+    <DefineConstants>$(DefineConstants);PYLON_AVAILABLE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(PylonAvailable)' == 'true'">
+    <Reference Include="Basler.Pylon">
+      <HintPath>$(PylonDotNetDir)\Basler.Pylon.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

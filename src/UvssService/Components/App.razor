@@ -1,0 +1,48 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="UvssService.styles.css" />
+    <!-- Loaded last so its html/body reset (background, font, overflow --
+         see Styles/input.css's @layer base) wins over app.css's leftover
+         Blazor-template styling. The ?v= query string is the file's own
+         last-write-time -- a browser that already has an OLDER build of
+         this file cached (heuristic caching kicks in even without an
+         explicit Cache-Control header) would otherwise keep serving that
+         stale CSS after `npm run build:css` regenerates it, silently
+         breaking the styling of whatever Tailwind classes a NEW page just
+         started using (this is exactly what made the Lane Setup modal
+         invisible-but-present-in-the-DOM). Appending the real build
+         timestamp forces every rebuild to be a new URL, so there is never
+         a stale-CSS class of bug to hunt down again. -->
+    <link rel="stylesheet" href="@TailwindCssHref" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet />
+</head>
+
+<body>
+    <Routes />
+    <script src="_framework/blazor.web.js"></script>
+</body>
+
+</html>
+
+@code {
+    [Inject] private IWebHostEnvironment Env { get; set; } = null!;
+
+    private string TailwindCssHref
+    {
+        get
+        {
+            var path = Path.Combine(Env.WebRootPath, "css", "tailwind.css");
+            var version = File.Exists(path)
+                ? new DateTimeOffset(File.GetLastWriteTimeUtc(path)).ToUnixTimeSeconds()
+                : 0;
+            return $"css/tailwind.css?v={version}";
+        }
+    }
+}

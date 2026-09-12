@@ -1,0 +1,183 @@
+@page "/analytics"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.EntityFrameworkCore
+@using UvssService.Data
+@using UvssService.Data.Entities
+@using UvssService.Lanes
+@inject IDbContextFactory<UvssDbContext> DbFactory
+@inject ScanEventNotifier ScanEventNotifier
+@implements IDisposable
+
+<PageTitle>Analytics Dashboard - UVSS</PageTitle>
+
+<div class="p-4 max-w-[1400px] mx-auto flex flex-col gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white border border-[#ccc] border-l-4 border-l-[#1a5fb4] rounded p-4">
+            <div class="text-xs font-semibold tracking-wide text-[#777] uppercase">Total Vehicles Checked</div>
+            <div class="text-3xl font-extrabold text-[#1a5fb4] mt-1">@TotalChecked</div>
+        </div>
+        <div class="bg-white border border-[#ccc] border-l-4 border-l-[#2c7a2c] rounded p-4">
+            <div class="text-xs font-semibold tracking-wide text-[#777] uppercase">Approved Entries</div>
+            <div class="text-3xl font-extrabold text-[#2c7a2c] mt-1">@ApprovedCount</div>
+        </div>
+        <div class="bg-white border border-[#ccc] border-l-4 border-l-[#c23b1f] rounded p-4">
+            <div class="text-xs font-semibold tracking-wide text-[#777] uppercase">Denied Entries</div>
+            <div class="text-3xl font-extrabold text-[#c23b1f] mt-1">@DeniedCount</div>
+        </div>
+        <div class="bg-white border border-[#ccc] border-l-4 border-l-[#b0700a] rounded p-4">
+            <div class="text-xs font-semibold tracking-wide text-[#777] uppercase">Threats Intercepted</div>
+            <div class="text-3xl font-extrabold text-[#b0700a] mt-1">@ThreatsCount</div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-[1.7fr_1fr] gap-4 items-start">
+        <div class="bg-white border border-[#ccc] rounded p-4">
+            <h2 class="text-sm font-bold tracking-wide text-[#222] mb-3">DAILY INSPECTION TRAFFIC (HOURLY DISTRIBUTION)</h2>
+            <svg viewBox="0 0 @ChartWidth @ChartHeight" class="w-full h-auto" role="img" aria-label="Hourly inspection traffic line chart">
+                @((MarkupString)BuildLineChartMarkup())
+            </svg>
+        </div>
+
+        <div class="bg-white border border-[#ccc] rounded p-4">
+            <h2 class="text-sm font-bold tracking-wide text-[#222] mb-3">SAFETY SCAN ASSESSMENT</h2>
+            <svg viewBox="0 0 120 120" class="w-40 h-40 mx-auto" role="img" aria-label="Cleared vs anomaly scan proportion donut chart">
+                <circle cx="60" cy="60" r="50" fill="none" stroke="#e2e2e2" stroke-width="16" />
+                @if (TotalChecked > 0)
+                {
+                    <circle cx="60" cy="60" r="50" fill="none" stroke="#2c7a2c" stroke-width="16"
+                            stroke-dasharray="@ClearedArcLength.ToString("F2", CultureInfo.InvariantCulture) @DonutCircumference.ToString("F2", CultureInfo.InvariantCulture)"
+                            transform="rotate(-90 60 60)" />
+                    <circle cx="60" cy="60" r="50" fill="none" stroke="#c23b1f" stroke-width="16"
+                            stroke-dasharray="@AnomalyArcLength.ToString("F2", CultureInfo.InvariantCulture) @DonutCircumference.ToString("F2", CultureInfo.InvariantCulture)"
+                            stroke-dashoffset="@((-ClearedArcLength).ToString("F2", CultureInfo.InvariantCulture))"
+                            transform="rotate(-90 60 60)" />
+                }
+            </svg>
+            <div class="flex items-center justify-center gap-4 mt-3 text-xs text-[#555]">
+                <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-[#2c7a2c] inline-block"></span>Cleared (Safe)</span>
+                <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-[#c23b1f] inline-block"></span>Anomalies (Threat)</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int ChartWidth = 680;
+    private const int ChartHeight = 220;
+    private const int ChartPadLeft = 26;
+    private const int ChartPadBottom = 22;
+    private const int ChartPadTop = 10;
+    private const double DonutRadius = 50;
+    private const double DonutCircumference = 2 * Math.PI * DonutRadius;
+
+    private List<ScanEvent> _entries = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        ScanEventNotifier.Changed += OnChanged;
+        await LoadEntries();
+    }
+
+    private async Task LoadEntries()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _entries = await db.ScanEvents.OrderByDescending(e => e.Id).Take(500).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"AnalyticsDashboard: could not reach the scan history database (is MySQL running?): {ex.Message}");
+        }
+    }
+
+    private void OnChanged() => _ = InvokeAsync(async () => { await LoadEntries(); StateHasChanged(); });
+
+    private IReadOnlyList<ScanEvent> Entries => _entries;
+
+    private int TotalChecked => Entries.Count;
+    private int ApprovedCount => Entries.Count(e => e.Admission == AdmissionStatus.Approved);
+    private int DeniedCount => Entries.Count(e => e.Admission == AdmissionStatus.Denied);
+    private int ThreatsCount => Entries.Count(e => e.ForeignObjectDetected);
+    private int ClearedCount => TotalChecked - ThreatsCount;
+
+    private double ClearedArcLength => TotalChecked == 0 ? 0 : DonutCircumference * ClearedCount / TotalChecked;
+    private double AnomalyArcLength => TotalChecked == 0 ? 0 : DonutCircumference * ThreatsCount / TotalChecked;
+
+    private int[] HourlyCounts()
+    {
+        var counts = new int[24];
+        foreach (var e in Entries)
+        {
+            counts[e.Timestamp.Hour]++;
+        }
+        return counts;
+    }
+
+    private List<(double X, double Y)> ChartPoints()
+    {
+        var counts = HourlyCounts();
+        var max = Math.Max(counts.Max(), 1);
+        var plotW = ChartWidth - ChartPadLeft - 10;
+        var plotH = ChartHeight - ChartPadTop - ChartPadBottom;
+        var pts = new List<(double, double)>();
+        for (var h = 0; h < 24; h++)
+        {
+            var x = ChartPadLeft + plotW * h / 23.0;
+            var y = ChartPadTop + plotH - plotH * counts[h] / (double)max;
+            pts.Add((x, y));
+        }
+        return pts;
+    }
+
+    // Built as a plain string and rendered via @((MarkupString)...) rather
+    // than literal Razor markup -- Razor's parser special-cases a bare
+    // <text> tag (a leftover from old-style Razor template text sections)
+    // and refuses to let it carry attributes (RZ1023), which SVG's own
+    // <text> element needs for x/y/font-size/etc.
+    private string BuildLineChartMarkup()
+    {
+        var points = ChartPoints();
+        var maxCount = Math.Max(HourlyCounts().Max(), 1);
+        var sb = new System.Text.StringBuilder();
+
+        for (var g = 0; g <= 4; g++)
+        {
+            var gy = ChartPadTop + (ChartHeight - ChartPadTop - ChartPadBottom) * (4 - g) / 4.0;
+            var gyStr = gy.ToString("F1", CultureInfo.InvariantCulture);
+            sb.Append($"<line x1=\"{ChartPadLeft}\" y1=\"{gyStr}\" x2=\"{ChartWidth - 8}\" y2=\"{gyStr}\" stroke=\"#eee\" stroke-width=\"1\" />");
+            sb.Append($"<text x=\"{ChartPadLeft - 6}\" y=\"{(gy + 3).ToString("F1", CultureInfo.InvariantCulture)}\" font-size=\"9\" fill=\"#999\" text-anchor=\"end\">{Math.Round(maxCount * g / 4.0)}</text>");
+        }
+
+        sb.Append($"<path d=\"{AreaPathAttr(points)}\" fill=\"#1a5fb4\" fill-opacity=\"0.12\" stroke=\"none\" />");
+        sb.Append($"<polyline points=\"{LinePointsAttr(points)}\" fill=\"none\" stroke=\"#1a5fb4\" stroke-width=\"2\" stroke-linejoin=\"round\" stroke-linecap=\"round\" />");
+        foreach (var p in points)
+        {
+            sb.Append($"<circle cx=\"{p.X.ToString("F1", CultureInfo.InvariantCulture)}\" cy=\"{p.Y.ToString("F1", CultureInfo.InvariantCulture)}\" r=\"2\" fill=\"#1a5fb4\" />");
+        }
+        for (var h = 0; h < 24; h += 2)
+        {
+            sb.Append($"<text x=\"{points[h].X.ToString("F1", CultureInfo.InvariantCulture)}\" y=\"{ChartHeight - 6}\" font-size=\"8\" fill=\"#999\" text-anchor=\"middle\">{h:00}:00</text>");
+        }
+        return sb.ToString();
+    }
+
+    private static string LinePointsAttr(List<(double X, double Y)> pts) =>
+        string.Join(" ", pts.Select(p => $"{p.X.ToString("F1", CultureInfo.InvariantCulture)},{p.Y.ToString("F1", CultureInfo.InvariantCulture)}"));
+
+    private string AreaPathAttr(List<(double X, double Y)> pts)
+    {
+        var bottomY = (ChartHeight - ChartPadBottom).ToString("F1", CultureInfo.InvariantCulture);
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"M{pts[0].X.ToString("F1", CultureInfo.InvariantCulture)},{bottomY} ");
+        foreach (var p in pts)
+        {
+            sb.Append($"L{p.X.ToString("F1", CultureInfo.InvariantCulture)},{p.Y.ToString("F1", CultureInfo.InvariantCulture)} ");
+        }
+        sb.Append($"L{pts[^1].X.ToString("F1", CultureInfo.InvariantCulture)},{bottomY} Z");
+        return sb.ToString();
+    }
+
+    public void Dispose() => ScanEventNotifier.Changed -= OnChanged;
+}

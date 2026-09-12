@@ -1,0 +1,659 @@
+@page "/lane-setup"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using UvssService.Data
+@using UvssService.Data.Entities
+@implements IDisposable
+@inject IDbContextFactory<UvssDbContext> DbFactory
+@inject IJSRuntime JS
+@inject UvssService.Sensors.LaneInterlockRegistry InterlockRegistry
+@inject UvssService.Streaming.CameraStatusRegistry CameraStatusRegistry
+@inject UvssService.Cameras.AreaScanCameraRegistry AreaScanCameraRegistry
+
+<PageTitle>Lane Setup - UVSS</PageTitle>
+
+<div class="p-4 max-w-[1400px] mx-auto flex flex-col gap-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+        <h1 class="text-lg font-bold text-[#222]">Lane Setup</h1>
+        <div class="flex items-center gap-2 flex-wrap">
+            <button class="bg-[#1a5fb4] text-white rounded px-3 py-1.5 text-sm font-semibold cursor-pointer" @onclick="OpenAddController">+ Add Controller</button>
+            <button class="bg-[#1a5fb4] text-white rounded px-3 py-1.5 text-sm font-semibold cursor-pointer" @onclick="OpenAddDriverCamera">+ Add Driver Camera</button>
+            <button class="bg-[#1a5fb4] text-white rounded px-3 py-1.5 text-sm font-semibold cursor-pointer" @onclick="OpenAddAnprCamera">+ Add ANPR Camera</button>
+            <button class="bg-[#1a5fb4] text-white rounded px-3 py-1.5 text-sm font-semibold cursor-pointer" @onclick="OpenAddUvssCamera">+ Add UVSS Camera</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_loadError))
+    {
+        <div class="bg-[#fbe1db] border border-[#c23b1f] text-[#c23b1f] rounded p-3 text-sm">
+            @_loadError
+        </div>
+    }
+
+    <!-- Controllers -->
+    <div class="bg-white border border-[#ccc] rounded p-4">
+        <h2 class="text-sm font-bold tracking-wide text-[#222] mb-3">CONTROLLERS</h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-[#ececec] border-b border-[#ccc]">
+                    <tr class="text-left text-[#555] text-xs uppercase tracking-wide">
+                        <th class="p-3">Lane ID</th>
+                        <th class="p-3">Gate Name</th>
+                        <th class="p-3">IP</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Test Point</th>
+                        <th class="p-3">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _controllers)
+                    {
+                        var isSimulated = string.Equals(c.InterlockSource, "simulated", StringComparison.OrdinalIgnoreCase);
+                        var online = IsControllerOnline(c.LaneId);
+                        <tr class="border-b border-[#eee] hover:bg-[#fafafa]">
+                            <td class="p-3 font-bold text-[#1a5fb4]">@c.LaneId</td>
+                            <td class="p-3">@c.GateName</td>
+                            <td class="p-3">@c.Ip</td>
+                            <td class="p-3">@StatusBadge(isSimulated, online)</td>
+                            <td class="p-3">
+                                <button class="bg-[#fdf1d8] text-[#b0700a] px-3 py-1 rounded text-xs font-semibold cursor-pointer" @onclick="() => TestRelay(c.LaneId)">Test Barrier Relay</button>
+                            </td>
+                            <td class="p-3 flex gap-2">
+                                @EditButton(() => OpenEditController(c))
+                                @DeleteButton(() => DeleteController(c.Id))
+                            </td>
+                        </tr>
+                    }
+                    @if (_controllers.Count == 0)
+                    {
+                        <tr><td colspan="6" class="p-6 text-center text-[#777]">No controllers added yet.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Driver Cameras -->
+    <div class="bg-white border border-[#ccc] rounded p-4">
+        <h2 class="text-sm font-bold tracking-wide text-[#222] mb-3">DRIVER CAMERAS</h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-[#ececec] border-b border-[#ccc]">
+                    <tr class="text-left text-[#555] text-xs uppercase tracking-wide">
+                        <th class="p-3">Lane ID</th>
+                        <th class="p-3">Camera Name</th>
+                        <th class="p-3">IP</th>
+                        <th class="p-3">Username</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _driverCameras)
+                    {
+                        <tr class="border-b border-[#eee] hover:bg-[#fafafa]">
+                            <td class="p-3 font-bold text-[#1a5fb4]">@c.LaneId</td>
+                            <td class="p-3">@c.CameraName</td>
+                            <td class="p-3">@c.Ip</td>
+                            <td class="p-3">@c.Username</td>
+                            <td class="p-3">@IpCameraStatusBadge(c.LaneId, "driver", c.Source)</td>
+                            <td class="p-3 flex gap-2">
+                                @EditButton(() => OpenEditDriverCamera(c))
+                                @DeleteButton(() => DeleteDriverCamera(c.Id))
+                            </td>
+                        </tr>
+                    }
+                    @if (_driverCameras.Count == 0)
+                    {
+                        <tr><td colspan="6" class="p-6 text-center text-[#777]">No driver cameras added yet.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ANPR Cameras -->
+    <div class="bg-white border border-[#ccc] rounded p-4">
+        <h2 class="text-sm font-bold tracking-wide text-[#222] mb-3">ANPR CAMERAS</h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-[#ececec] border-b border-[#ccc]">
+                    <tr class="text-left text-[#555] text-xs uppercase tracking-wide">
+                        <th class="p-3">Lane ID</th>
+                        <th class="p-3">Camera Name</th>
+                        <th class="p-3">IP</th>
+                        <th class="p-3">Username</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _anprCameras)
+                    {
+                        <tr class="border-b border-[#eee] hover:bg-[#fafafa]">
+                            <td class="p-3 font-bold text-[#1a5fb4]">@c.LaneId</td>
+                            <td class="p-3">@c.CameraName</td>
+                            <td class="p-3">@c.Ip</td>
+                            <td class="p-3">@c.Username</td>
+                            <td class="p-3">@IpCameraStatusBadge(c.LaneId, "anpr", c.Source)</td>
+                            <td class="p-3 flex gap-2">
+                                @EditButton(() => OpenEditAnprCamera(c))
+                                @DeleteButton(() => DeleteAnprCamera(c.Id))
+                            </td>
+                        </tr>
+                    }
+                    @if (_anprCameras.Count == 0)
+                    {
+                        <tr><td colspan="6" class="p-6 text-center text-[#777]">No ANPR cameras added yet.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- UVSS Cameras -->
+    <div class="bg-white border border-[#ccc] rounded p-4">
+        <h2 class="text-sm font-bold tracking-wide text-[#222] mb-3">UVSS CAMERAS</h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-[#ececec] border-b border-[#ccc]">
+                    <tr class="text-left text-[#555] text-xs uppercase tracking-wide">
+                        <th class="p-3">Lane ID</th>
+                        <th class="p-3">Camera Name</th>
+                        <th class="p-3">Device Serial</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _uvssCameras)
+                    {
+                        <tr class="border-b border-[#eee] hover:bg-[#fafafa]">
+                            <td class="p-3 font-bold text-[#1a5fb4]">@c.LaneId</td>
+                            <td class="p-3">@c.CameraName</td>
+                            <td class="p-3">@c.DeviceSerial</td>
+                            <td class="p-3">@UvssCameraStatusBadge(c.LaneId, c.Source)</td>
+                            <td class="p-3 flex gap-2">
+                                @EditButton(() => OpenEditUvssCamera(c))
+                                @DeleteButton(() => DeleteUvssCamera(c.Id))
+                            </td>
+                        </tr>
+                    }
+                    @if (_uvssCameras.Count == 0)
+                    {
+                        <tr><td colspan="5" class="p-6 text-center text-[#777]">No UVSS cameras added yet.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@if (_modal != ModalType.None)
+{
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @onclick="CloseModal">
+        <div class="bg-white rounded p-5 w-[420px] max-w-[90vw]" @onclick:stopPropagation="true">
+            <h3 class="text-sm font-bold tracking-wide text-[#222] mb-4">@ModalTitle()</h3>
+
+            <div class="flex flex-col gap-3">
+                @if (_modal is ModalType.Controller or ModalType.DriverCamera or ModalType.AnprCamera or ModalType.UvssCamera)
+                {
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-semibold text-[#555]">Lane ID <span class="text-[#c23b1f]">*</span></label>
+                        <input @bind="_draftLaneId" @bind:event="oninput" placeholder="e.g. lane1" class="border border-[#ccc] rounded px-2 py-1.5 text-sm" />
+                    </div>
+                }
+
+                @if (_modal == ModalType.Controller)
+                {
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-semibold text-[#555]">Gate Name <span class="text-[#c23b1f]">*</span></label>
+                        <input @bind="_draftGateName" placeholder="e.g. Main Entry Gate" class="border border-[#ccc] rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-semibold text-[#555]">IP <span class="text-[#c23b1f]">*</span></label>
+                        <input @bind="_draftIp" placeholder="e.g. 192.168.1.151" class="border border-[#ccc] rounded px-2 py-1.5 text-sm" />
+                    </div>
+                }
+
+                @if (_modal is ModalType.DriverCamera or ModalType.AnprCamera)
+                {
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-semibold text-[#555]">Camera Name <span class="text-[#c23b1f]">*</span></label>
+                        <input @bind="_draftCameraName" placeholder="e.g. Lane 1 Driver Cam" class="border border-[#ccc] rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-semibold text-[#555]">IP <span class="text-[#c23b1f]">*</span></label>
+                        <input @bind="_draftIp" placeholder="e.g. 192.168.1.110" class="border border-[#ccc] rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-semibold text-[#555]">Username</label>
+                        <input @bind="_draftUsername" class="border border-[#ccc] rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-semibold text-[#555]">Password</label>
+                        <input type="password" @bind="_draftPassword" class="border border-[#ccc] rounded px-2 py-1.5 text-sm" />
+                    </div>
+                }
+
+                @if (_modal == ModalType.UvssCamera)
+                {
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-semibold text-[#555]">Camera Name <span class="text-[#c23b1f]">*</span></label>
+                        <input @bind="_draftCameraName" placeholder="e.g. Lane 1 UVSS Cam" class="border border-[#ccc] rounded px-2 py-1.5 text-sm" />
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-semibold text-[#555]">Device Serial <span class="text-[#c23b1f]">*</span></label>
+                        <input @bind="_draftDeviceSerial" placeholder="e.g. 24123456" class="border border-[#ccc] rounded px-2 py-1.5 text-sm" />
+                        <span class="text-[0.7rem] text-[#777]">No IP needed -- pylon finds this Basler camera on the network by its serial number alone.</span>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <p class="text-xs text-[#c23b1f] font-semibold">@_error</p>
+                }
+            </div>
+
+            <div class="flex justify-end gap-2 mt-5">
+                <button class="bg-[#ececec] text-[#222] rounded px-3 py-1.5 text-sm font-semibold cursor-pointer" @onclick="CloseModal">Cancel</button>
+                <button class="bg-[#1a5fb4] text-white rounded px-3 py-1.5 text-sm font-semibold cursor-pointer" @onclick="SaveModal">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private enum ModalType { None, Controller, DriverCamera, AnprCamera, UvssCamera }
+
+    /// <summary>Icon-only Action-column buttons shared by all 4 manage
+    /// tables below -- built as RenderFragment factories (rather than
+    /// separate .razor components) since they're only ever used here and
+    /// each just needs one click callback wired to inline SVG.</summary>
+    private RenderFragment EditButton(Action onClick) => @<button type="button" title="Edit"
+            class="bg-[#ececec] hover:bg-[#dcdcdc] text-[#222] p-1.5 rounded cursor-pointer" @onclick="onClick">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </svg>
+    </button>;
+
+    private RenderFragment DeleteButton(Func<Task> onClick) => @<button type="button" title="Delete"
+            class="bg-[#c23b1f] hover:bg-[#a3301a] text-white p-1.5 rounded cursor-pointer" @onclick="onClick">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18" />
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            <path d="M10 11v6" />
+            <path d="M14 11v6" />
+        </svg>
+    </button>;
+
+    /// <summary>Shared Status-column badge for Controllers/Driver/ANPR/UVSS
+    /// cameras -- a grey "Simulated" badge when this row's Source/
+    /// InterlockSource is "simulated" (there is deliberately no real
+    /// online/offline concept for a row with no real hardware behind it, so
+    /// this is never conflated with a real green/red reading), else a real
+    /// green "Online" / red "Offline" reading from whichever registry the
+    /// caller already resolved into `online`.</summary>
+    private RenderFragment StatusBadge(bool isSimulated, bool online) => @<span class="inline-flex items-center gap-1.5">
+        @if (isSimulated)
+        {
+            <span class="w-2.5 h-2.5 rounded-full inline-block bg-[#888]"></span>
+            <span class="text-xs font-semibold text-[#666]">Simulated</span>
+        }
+        else
+        {
+            <span class="w-2.5 h-2.5 rounded-full inline-block @(online ? "bg-[#2c7a2c]" : "bg-[#c23b1f]")"></span>
+            <span class="text-xs font-semibold @(online ? "text-[#2c7a2c]" : "text-[#c23b1f]")">@(online ? "Online" : "Offline")</span>
+        }
+    </span>;
+
+    private RenderFragment IpCameraStatusBadge(string laneId, string cameraLabel, string source) =>
+        StatusBadge(string.Equals(source, "simulated", StringComparison.OrdinalIgnoreCase), CameraStatusRegistry.IsOnline(laneId, cameraLabel));
+
+    /// <summary>Unlike the IP cameras (continuously streamed, so a recent
+    /// frame timestamp means "online"), the UVSS/Basler camera is only ever
+    /// grabbed during an active pass -- there's no continuous heartbeat to
+    /// time out. Available instead reflects whether pylon's GigE discovery
+    /// actually found a real device by DeviceSerial when this lane started
+    /// (see AreaScanCameraRegistry's own remarks) -- "Offline" here means
+    /// "no matching camera was found on the network", not "went quiet
+    /// recently".</summary>
+    private RenderFragment UvssCameraStatusBadge(string laneId, string source) =>
+        StatusBadge(string.Equals(source, "simulated", StringComparison.OrdinalIgnoreCase), IsUvssCameraOnline(laneId));
+
+    private bool IsUvssCameraOnline(string laneId) =>
+        AreaScanCameraRegistry.TryGet(laneId, out var camera) && camera != null && camera.Available;
+
+    private ModalType _modal = ModalType.None;
+    private int? _editingId;
+    private string _error = "";
+    private string _loadError = "";
+
+    /// <summary>Redraws every Status-column badge on a timer -- none of
+    /// these are backed by an event to subscribe to (IsControllerOnline/
+    /// IsIpCameraOnline/IsUvssCameraOnline are all plain snapshots), so this
+    /// is the only way they keep up with reality instead of only updating
+    /// on the next unrelated re-render.</summary>
+    private System.Threading.Timer? _statusRefreshTimer;
+
+    private List<Controller> _controllers = new();
+    private List<DriverCamera> _driverCameras = new();
+    private List<AnprCamera> _anprCameras = new();
+    private List<UvssCamera> _uvssCameras = new();
+
+    // Draft fields shared by whichever modal is open -- only the subset
+    // relevant to _modal's entity type is actually shown/used.
+    private string _draftLaneId = "";
+    private string _draftGateName = "";
+    private string _draftIp = "";
+    private string _draftCameraName = "";
+    private string _draftUsername = "";
+    private string _draftPassword = "";
+    private string _draftDeviceSerial = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAll();
+        _statusRefreshTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private bool IsControllerOnline(string laneId) =>
+        InterlockRegistry.TryGet(laneId, out var interlock) && interlock != null && interlock.IsControllerOnline;
+
+    public void Dispose() => _statusRefreshTimer?.Dispose();
+
+    private async Task ReloadAll()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _controllers = await db.Controllers.OrderBy(c => c.Id).ToListAsync();
+            _driverCameras = await db.DriverCameras.OrderBy(c => c.Id).ToListAsync();
+            _anprCameras = await db.AnprCameras.OrderBy(c => c.Id).ToListAsync();
+            _uvssCameras = await db.UvssCameras.OrderBy(c => c.Id).ToListAsync();
+            _loadError = "";
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not reach the Lane Setup database (is MySQL running?): {ex.Message}";
+        }
+    }
+
+    private string ModalTitle() => _modal switch
+    {
+        ModalType.Controller => _editingId == null ? "Add Controller" : "Edit Controller",
+        ModalType.DriverCamera => _editingId == null ? "Add Driver Camera" : "Edit Driver Camera",
+        ModalType.AnprCamera => _editingId == null ? "Add ANPR Camera" : "Edit ANPR Camera",
+        ModalType.UvssCamera => _editingId == null ? "Add UVSS Camera" : "Edit UVSS Camera",
+        _ => "",
+    };
+
+    private void ClearDrafts()
+    {
+        _draftLaneId = "";
+        _draftGateName = "";
+        _draftIp = "";
+        _draftCameraName = "";
+        _draftUsername = "";
+        _draftPassword = "";
+        _draftDeviceSerial = "";
+        _error = "";
+    }
+
+    private void OpenAddController() { ClearDrafts(); _editingId = null; _modal = ModalType.Controller; }
+    private void OpenEditController(Controller c)
+    {
+        ClearDrafts();
+        _editingId = c.Id;
+        _draftLaneId = c.LaneId;
+        _draftGateName = c.GateName;
+        _draftIp = c.Ip;
+        _modal = ModalType.Controller;
+    }
+
+    private void OpenAddDriverCamera() { ClearDrafts(); _editingId = null; _modal = ModalType.DriverCamera; }
+    private void OpenEditDriverCamera(DriverCamera c)
+    {
+        ClearDrafts();
+        _editingId = c.Id;
+        _draftLaneId = c.LaneId;
+        _draftCameraName = c.CameraName;
+        _draftIp = c.Ip;
+        _draftUsername = c.Username;
+        _draftPassword = c.Password;
+        _modal = ModalType.DriverCamera;
+    }
+
+    private void OpenAddAnprCamera() { ClearDrafts(); _editingId = null; _modal = ModalType.AnprCamera; }
+    private void OpenEditAnprCamera(AnprCamera c)
+    {
+        ClearDrafts();
+        _editingId = c.Id;
+        _draftLaneId = c.LaneId;
+        _draftCameraName = c.CameraName;
+        _draftIp = c.Ip;
+        _draftUsername = c.Username;
+        _draftPassword = c.Password;
+        _modal = ModalType.AnprCamera;
+    }
+
+    private void OpenAddUvssCamera() { ClearDrafts(); _editingId = null; _modal = ModalType.UvssCamera; }
+    private void OpenEditUvssCamera(UvssCamera c)
+    {
+        ClearDrafts();
+        _editingId = c.Id;
+        _draftLaneId = c.LaneId;
+        _draftCameraName = c.CameraName;
+        _draftDeviceSerial = c.DeviceSerial;
+        _modal = ModalType.UvssCamera;
+    }
+
+    private void CloseModal()
+    {
+        _modal = ModalType.None;
+        _editingId = null;
+        _error = "";
+    }
+
+    private async Task SaveModal()
+    {
+        if (string.IsNullOrWhiteSpace(_draftLaneId))
+        {
+            _error = "Lane ID is required.";
+            return;
+        }
+        // UVSS/Basler cameras have no IP field at all -- pylon finds them
+        // by DeviceSerial alone (see UvssCamera's own remarks) -- every
+        // other modal type still needs one.
+        if (_modal != ModalType.UvssCamera && string.IsNullOrWhiteSpace(_draftIp))
+        {
+            _error = "IP is required.";
+            return;
+        }
+        if (_modal == ModalType.UvssCamera && string.IsNullOrWhiteSpace(_draftDeviceSerial))
+        {
+            _error = "Device Serial is required.";
+            return;
+        }
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            switch (_modal)
+            {
+                case ModalType.Controller:
+                    if (string.IsNullOrWhiteSpace(_draftGateName))
+                    {
+                        _error = "Gate Name is required.";
+                        return;
+                    }
+                    if (_editingId is { } controllerId)
+                    {
+                        var existing = await db.Controllers.FindAsync(controllerId);
+                        if (existing == null) { _error = "This controller no longer exists."; return; }
+                        existing.LaneId = _draftLaneId;
+                        existing.GateName = _draftGateName;
+                        existing.Ip = _draftIp;
+                    }
+                    else
+                    {
+                        db.Controllers.Add(new Controller { LaneId = _draftLaneId, GateName = _draftGateName, Ip = _draftIp });
+                    }
+                    break;
+
+                case ModalType.DriverCamera:
+                    if (string.IsNullOrWhiteSpace(_draftCameraName))
+                    {
+                        _error = "Camera Name is required.";
+                        return;
+                    }
+                    if (_editingId is { } driverId)
+                    {
+                        var existing = await db.DriverCameras.FindAsync(driverId);
+                        if (existing == null) { _error = "This camera no longer exists."; return; }
+                        existing.LaneId = _draftLaneId;
+                        existing.CameraName = _draftCameraName;
+                        existing.Ip = _draftIp;
+                        existing.Username = _draftUsername;
+                        existing.Password = _draftPassword;
+                    }
+                    else
+                    {
+                        db.DriverCameras.Add(new DriverCamera
+                        {
+                            LaneId = _draftLaneId, CameraName = _draftCameraName,
+                            Ip = _draftIp, Username = _draftUsername, Password = _draftPassword,
+                        });
+                    }
+                    break;
+
+                case ModalType.AnprCamera:
+                    if (string.IsNullOrWhiteSpace(_draftCameraName))
+                    {
+                        _error = "Camera Name is required.";
+                        return;
+                    }
+                    if (_editingId is { } anprId)
+                    {
+                        var existing = await db.AnprCameras.FindAsync(anprId);
+                        if (existing == null) { _error = "This camera no longer exists."; return; }
+                        existing.LaneId = _draftLaneId;
+                        existing.CameraName = _draftCameraName;
+                        existing.Ip = _draftIp;
+                        existing.Username = _draftUsername;
+                        existing.Password = _draftPassword;
+                    }
+                    else
+                    {
+                        db.AnprCameras.Add(new AnprCamera
+                        {
+                            LaneId = _draftLaneId, CameraName = _draftCameraName,
+                            Ip = _draftIp, Username = _draftUsername, Password = _draftPassword,
+                        });
+                    }
+                    break;
+
+                case ModalType.UvssCamera:
+                    if (string.IsNullOrWhiteSpace(_draftCameraName))
+                    {
+                        _error = "Camera Name is required.";
+                        return;
+                    }
+                    if (_editingId is { } uvssId)
+                    {
+                        var existing = await db.UvssCameras.FindAsync(uvssId);
+                        if (existing == null) { _error = "This camera no longer exists."; return; }
+                        existing.LaneId = _draftLaneId;
+                        existing.CameraName = _draftCameraName;
+                        existing.DeviceSerial = _draftDeviceSerial;
+                    }
+                    else
+                    {
+                        db.UvssCameras.Add(new UvssCamera
+                        {
+                            LaneId = _draftLaneId, CameraName = _draftCameraName,
+                            DeviceSerial = _draftDeviceSerial,
+                        });
+                    }
+                    break;
+            }
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Save failed: {ex.Message}";
+            return;
+        }
+
+        CloseModal();
+        await ReloadAll();
+    }
+
+    private async Task<bool> Confirm(string message) => await JS.InvokeAsync<bool>("confirm", message);
+
+    /// <summary>Manually sends the barrier OPEN command over the socket to
+    /// the LIVE interlock currently running for this Lane ID -- for an
+    /// installer to verify the relay's wiring against its physical test
+    /// point without waiting for a real vehicle. Looked up by LaneId through
+    /// LaneInterlockRegistry, NOT through this Controller row's own
+    /// database Id -- this row's Enabled flag and every other runtime field
+    /// (loaded at service startup, see LaneRuntimeConfigLoader) IS what
+    /// drives whether/how this lane actually runs, but a row edited just now
+    /// still needs a service restart to be picked up (see
+    /// LaneInterlockRegistry's own remarks). No status text is shown here --
+    /// the Status column's online/offline dot is the feedback.</summary>
+    private async Task TestRelay(string laneId)
+    {
+        if (!InterlockRegistry.TryGet(laneId, out var interlock) || interlock == null)
+        {
+            Console.WriteLine($"[LaneSetup] Test Barrier Relay: no live interlock running for lane '{laneId}'.");
+            return;
+        }
+        try
+        {
+            await interlock.OpenBarrierAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LaneSetup] Test Barrier Relay for '{laneId}' failed: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteController(int id)
+    {
+        if (!await Confirm("Delete this controller?")) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var entity = await db.Controllers.FindAsync(id);
+        if (entity != null) { db.Controllers.Remove(entity); await db.SaveChangesAsync(); }
+        await ReloadAll();
+    }
+
+    private async Task DeleteDriverCamera(int id)
+    {
+        if (!await Confirm("Delete this driver camera?")) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var entity = await db.DriverCameras.FindAsync(id);
+        if (entity != null) { db.DriverCameras.Remove(entity); await db.SaveChangesAsync(); }
+        await ReloadAll();
+    }
+
+    private async Task DeleteAnprCamera(int id)
+    {
+        if (!await Confirm("Delete this ANPR camera?")) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var entity = await db.AnprCameras.FindAsync(id);
+        if (entity != null) { db.AnprCameras.Remove(entity); await db.SaveChangesAsync(); }
+        await ReloadAll();
+    }
+
+    private async Task DeleteUvssCamera(int id)
+    {
+        if (!await Confirm("Delete this UVSS camera?")) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var entity = await db.UvssCameras.FindAsync(id);
+        if (entity != null) { db.UvssCameras.Remove(entity); await db.SaveChangesAsync(); }
+        await ReloadAll();
+    }
+}

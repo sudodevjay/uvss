@@ -1,0 +1,254 @@
+filename	label	text	confidence	variant	correct
+old_License (1308)_0.jpg	TN07AR2336	TN07AR2336	1.0000	original:trim10:raw+sar	True
+old_License (506)_0.jpg	MH01BB1124	MH01BB1124	1.0000	original:original:raw+sar	True
+old_License (918)_0.jpg	UP14BP0510	UP14BP0510	1.0000	original:original:raw+sar	True
+new_cam02_13-07-14-449900_HR38AD1765__det.jpg	HR38AD1765	HR38AD1765	1.0000	original:center60:raw+sar	True
+new_cam02_15-06-42-846761_DL1ZO6848__det.jpg	DL1ZD6848	DL1ZD6848	1.0000	original:center60:raw+sar	True
+old_License (1548)_0.jpg	MH05AS3073	MH05AS3073	1.0000	original:trim10:raw+sar	True
+old_License (1890)_0.jpg	WB06F6711	WB06F6711	1.0000	original:trim10:raw+sar	True
+old_License (1322)_0.jpg	DL2CAN7860	DL2CAN7860	1.0000	original:trim18:raw+sar	True
+old_License (1362)_0.jpg	DL3CAY5270	DL3CAY5270	1.0000	original:trim10:raw+sar	True
+new_cam02_13-44-45-223640_DL12D8494__det.jpg	DL1ZD8494	DL1ZD8494	0.9999	original:center50:raw+sar	True
+old_License (182)_0.jpg	MH43X7188	MH43X7188	1.0000	original:original:raw+sar	True
+new_vehicle_20260820-100659__det.jpg	HR48E9780	HR48E9780	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260819-105659__det.jpg	HR55BB3722	HR55BB3722	1.0000	original:center60:raw+sar	True
+old_License (391)_0.jpg	MH09BB4445	MH09BB4445	1.0000	original:trim18:raw+sar	True
+old_License (1777)_0.jpg	GJ18AB2587	GJ18AB2587	1.0000	original:trim25:raw+sar	True
+old_License (57)_0.jpg	MH27AR0665	MH27AR0665	1.0000	original:trim18:raw+sar	True
+new_vehicle_20260819-111613__det.jpg	DL4CAZ3376	DL4CAZ3376	1.0000	original:trim25:raw+sar	True
+new_vehicle_20260820-103526__det.jpg	HR55AU5917	HR55AU5917	1.0000	original:trim18:raw+sar	True
+old_License (912)_0.jpg	TN01AJ8334	TN01AJ8334	1.0000	original:trim18:raw+sar	True
+new_vehicle_20260820-121129__det.jpg	PB34C9534	PB34C9534	0.9999	original:trim18:raw+sar	True
+old_License (45)_0.jpg	MH04FA6281	MH04FA6281	1.0000	original:trim10:raw+sar	True
+new_cam02_11-36-20-543875_26BH6624B__det.jpg	26BH6624E	26BH6624E	0.9999	original:center50:raw+sar	True
+old_00000395_0.jpg	UP14DH4701	UP14DH4701	1.0000	original:original:raw+sar	True
+old_00000395_1.jpg	UP14DH4701	UP14DH4701	0.9916	original:original:raw+sar	True
+old_License (1254)_0.jpg	MH43X3230	MH43X3230	1.0000	original:original:raw+sar	True
+old_License (926)_0.jpg	MH14DA0570	MH14DA0570	1.0000	original:trim10:raw+sar	True
+old_License (1006)_0.jpg	AP29AJ9099	AP29AJ9099	1.0000	original:original:raw+sar	True
+new_cam02_12-21-58-162260_UP82AW6586__det.jpg	UP82AW6586	UP82AW6586	1.0000	original:trim18:raw+sar	True
+old_License (1198)_0.jpg	WB06A4572	WB06A4572	1.0000	original:center60:raw+sar	True
+old_License (1682)_0.jpg	DL3CBM6489	DL3CBM6489	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260820-115430__det.jpg	UP14GU4128	UP14GU4128	1.0000	original:center60:raw+sar	True
+old_License (782)_0.jpg	UP16AN0179	UP16AN0179	1.0000	original:trim10:raw+sar	True
+old_00000240_0.jpg	MP09CY2208	MP09CY2208	0.9997	original:original:raw+sar	True
+old_00000240_1.jpg	MP09CY2208	MP09CY2208	0.9991	original:original:raw+sar	True
+new_cam02_14-25-15-223531_JK02CK3724__det.jpg	JK02CK3724	JK02CK3724	0.9999	original:center50:raw+sar	True
+new_vehicle_20260819-070604__det.jpg	HR55AS0594	HR55AS0594	1.0000	original:center50:raw+sar	True
+old_License (1175)_0.jpg	PB10CV7547	PB10CV7547	1.0000	original:original:raw+sar	True
+old_License (1169)_0.jpg	AP25AA6300	AP25AA6300	1.0000	original:trim25:raw+sar	True
+old_License (868)_0.jpg	MH06BC4786	MH06BC4786	1.0000	original:trim18:raw+sar	True
+new_cam02_12-03-54-389825_DL1CAC5372__det.jpg	DL1CAC5372	DL1CAC5372	1.0000	original:center50:raw+sar	True
+old_License (322)_0.jpg	MH02BZ0619	MH02BZ0619	1.0000	original:original:raw+sar	True
+new_vehicle_20260820-121321__det.jpg	DL8CBL4171	DL8CBL4171	0.9979	original:trim10:raw+sar	True
+old_License (1515)_0.jpg	DL8CAW4610	DL8CAW4610	1.0000	original:trim18:raw+sar	True
+old_License (1057)_0.jpg	AP09BW4601	AP09BW4601	1.0000	original:trim10:raw+sar	True
+old_License (1227)_0.jpg	MH14DT9633	MH14DT9633	1.0000	original:trim18:raw+sar	True
+old_License (16)_0.jpg	DL4CAD6474	DL4CAD6474	1.0000	original:trim25:raw+sar	True
+old_License (261)_0.jpg	DL4CAN8167	DL4CAN8167	1.0000	original:original:raw+sar	True
+old_License (1441)_0.jpg	DL9CX6688	DL9CX6688	1.0000	original:trim18:raw+sar	True
+new_vehicle_20260819-083037__det.jpg	DL12CV5224	DL12CV5224	0.9992	original:trim18:raw+sar	True
+old_00000117_0.jpg	MH20DV2366	MH20DV2366	1.0000	original:trim18:raw+sar	True
+old_License (1068)_0.jpg	TN20BF6121	TN20BF6121	1.0000	original:trim10:raw+sar	True
+old_License (435)_0.jpg	MH04CT2694	MH04CT2694	1.0000	original:trim18:raw+sar	True
+new_cam02_15-48-39-279351_DL2CBE634__asis.jpg	DL2CBE6344	DL2CBE6344	1.0000	original:center60:raw+sar	True
+new_vehicle_20260819-092443__det.jpg	DL8EV7005	DL8EV7005	0.9999	original:trim10:raw+sar	True
+old_License (1256)_0.jpg	MH01AH4829	MH01AH4829	1.0000	original:trim10:raw+sar	True
+old_License (1157)_0.jpg	MH14CS9816	MH14CS9816	1.0000	original:original:raw+sar	True
+old_License (1842)_0.jpg	WB02Y7511	WB02Y7511	1.0000	original:original:raw+sar	True
+old_License (1166)_0.jpg	MH12FV5288	MH12FV5288	1.0000	original:original:raw+sar	True
+new_cam02_16-20-44-257039_DL7CN6770__det.jpg	DL7CW6770	DL7CW6770	1.0000	original:center50:raw+sar	True
+new_vehicle_20260819-114551__det.jpg	UP14GN0066	UP14GN0066	1.0000	original:center50:raw+sar	True
+old_License (890)_0.jpg	MH03AM5958	MH03AM5958	1.0000	original:original:raw+sar	True
+new_vehicle_20260820-103439__det.jpg	UP27CT6766	UP27CT6766	1.0000	original:trim25:raw+sar	True
+old_License (366)_0.jpg	MH12HL9421	MH12HL9421	1.0000	original:trim10:raw+sar	True
+old_License (279)_0.jpg	MH06AS5441	MH06AS5441	1.0000	original:trim10:raw+sar	True
+old_License (445)_0.jpg	MH14BC8780	MH14BC8780	1.0000	original:original:raw+sar	True
+old_License (777)_0.jpg	WB02Z4997	WB02Z4997	0.9985	original:original:raw+sar	True
+old_License (1363)_0.jpg	DL5CH6685	DL5CH6685	1.0000	original:trim10:raw+sar	True
+old_License (765)_0.jpg	HR26AQ2766	HR26AQ2766	1.0000	original:original:raw+sar	True
+old_License (9)_0.jpg	DL1CP0290	DL1CP0290	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260820-115914__det.jpg	HR98Q8093	HR98Q8093	0.9994	original:trim10:raw+sar	True
+new_cam02_11-41-47-926011_DL7CX8825__det.jpg	DL7CX8825	DL7CX8825	1.0000	original:center50:raw+sar	True
+old_License (120)_0.jpg	MH12GV4495	MH12GV4495	1.0000	original:trim18:raw+sar	True
+old_License (1742)_0.jpg	MP09CF7910	MP09CF7910	1.0000	original:trim10:raw+sar	True
+old_00000005_0.jpg	KL35J4199	KL35J4199	1.0000	original:trim10:raw+sar	True
+old_00000005_1.jpg	KL35J4199	KL35JK5699	0.8074	original:original:raw+sar	False
+old_License (134)_0.jpg	MH14BK9931	MH14BK9931	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260820-101104__det.jpg	HR48E9780	HR48E9780	1.0000	original:center50:raw+sar	True
+old_License (392)_0.jpg	MH09BB4445	MH09BB4445	1.0000	original:trim18:raw+sar	True
+old_00000299_0.jpg	KL18S2728	KL18S2728	1.0000	original:original:raw+sar	True
+old_00000299_1.jpg	KL18S2728	KL18S2728	0.9653	original:trim18:raw+sar	True
+old_License (891)_0.jpg	MH12ET6622	MH12ET6622	1.0000	original:trim18:raw+sar	True
+new_vehicle_20260820-093426__det.jpg	DL9CAW6856	DL9CAW6856	1.0000	original:trim25:raw+sar	True
+old_License (751)_0.jpg	DL3CAL3739	DL3CAL3739	1.0000	original:trim18:raw+sar	True
+new_cam02_14-07-24-152764_23BH9598B__det.jpg	23BH9598B	23BH9598B	0.9999	original:center50:raw+sar	True
+old_00000277_0.jpg	JK55M5656	JK55M5656	0.9987	original:original:raw+sar	True
+old_00000277_1.jpg	JK55M5656	JK55M5656	0.9992	original:original:raw+sar	True
+old_License (1431)_0.jpg	AP28DD9291	AP28DD9291	1.0000	original:trim10:raw+sar	True
+old_License (569)_0.jpg	DL3CBP0423	DL3CBP0423	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260820-093431__det.jpg	HR51CV1678	HR51CV1678	1.0000	original:original:raw+sar	True
+new_cam02_15-05-57-066578_DL1Z0684__det.jpg	DL1ZD6848	DL1ZD6848	1.0000	original:trim25:raw+sar	True
+old_License (1654)_0.jpg	MH02CB1544	MH02CB1544	1.0000	original:original:raw+sar	True
+old_License (721)_0.jpg	MH03AM4625	MH03AM4625	1.0000	original:original:raw+sar	True
+new_vehicle_20260819-091643__det.jpg	HR48E9780	HR48E9780	1.0000	original:original:raw+sar	True
+old_License (1067)_0.jpg	TN20BF6121	TN20BF6121	1.0000	original:trim10:raw+sar	True
+new_cam01_16-04-03-594912_DL8CAS1432__det.jpg	DL8CAS1432	DL8CAS1432	0.9946	original:center50:indian_9b_trim3+sar	True
+new_vehicle_20260820-121735__det.jpg	DL5CY1311	DL5CY1311	1.0000	original:center50:raw+sar	True
+new_vehicle_20260820-112540__det.jpg	DL1CX8939	DL1CX8939	1.0000	original:center60:raw+sar	True
+old_License (1025)_0.jpg	MH04BD7328	MH04BD7328	1.0000	original:trim10:raw+sar	True
+old_License (1132)_0.jpg	MH03BE6763	MH03BE6763	1.0000	original:trim10:raw+sar	True
+old_License (1706)_0.jpg	MH04DW7092	MH04DW7092	1.0000	original:original:raw+sar	True
+old_00000127_1.jpg	JH10BF4585	JH10BF4585	1.0000	original:original:raw+sar	True
+old_00000127_2.jpg	TN01BJ7878	TN01BJ7878	1.0000	original:trim18:raw+sar	True
+old_00000127_3.jpg	KA41EN1051	KA41EN1051	0.9996	original:original:raw+sar	True
+old_00000012_0.jpg	GJ01MW7581	GJ01MW7581	0.9853	original:trim10:raw+sar	True
+new_cam02_13-15-57-225662_DL9CAZ2492__det.jpg	DL9CAZ2492	DL9CAZ2492	1.0000	original:trim25:raw+sar	True
+new_vehicle_20260819-094109__det.jpg	DL8CBL6960	DL8CBL6960	1.0000	original:center50:raw+sar	True
+new_cam02_14-56-23-062149_DL12CU988__det.jpg	DL12CU9888	DL12CU9888	0.9999	original:center50:raw+sar	True
+old_License (73)_0.jpg	PB10DN2421	PB10DN2421	1.0000	original:trim18:raw+sar	True
+new_cam02_10-58-48-176835_UP16BB5581__det.jpg	UP16BB5581	UP16BB5581	1.0000	original:center60:raw+sar	True
+old_License (1009)_0.jpg	AP10AS2198	AP10AS2198	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260820-114600__det.jpg	HR26FN1430	HR26FN1430	1.0000	original:trim25:raw+sar	True
+old_License (1050)_0.jpg	MH04CT2218	MH04CT2218	1.0000	original:trim10:raw+sar	True
+old_License (1008)_0.jpg	AP29AJ9099	AP29AJ9099	1.0000	original:original:raw+sar	True
+old_License (327)_0.jpg	MH05AJ9929	MH05AJ9929	1.0000	original:trim18:raw+sar	True
+old_License (673)_0.jpg	TN10AF1638	TN10AF1638	1.0000	original:original:raw+sar	True
+old_License (367)_0.jpg	AP09BM5751	WP09B1751	0.8685	original:trim18:raw+statefix+sar	False
+old_License (1723)_0.jpg	DL4CAL0801	DL4CAL0801	1.0000	original:original:raw+sar	True
+old_License (333)_0.jpg	MH02BT4626	MH02BT4626	1.0000	original:trim10:raw+sar	True
+old_License (1395)_0.jpg	MH02BP1387	MH02BP1387	1.0000	original:trim18:raw+sar	True
+old_License (37)_0.jpg	PB11AQ4942	PB11AQ4942	0.9998	original:trim10:raw+sar	True
+old_License (1499)_0.jpg	DL8CW0587	DL8CW0587	1.0000	original:trim10:raw+sar	True
+new_cam02_16-18-38-571624_DL10C0929__det.jpg	DL10CQ9293	DL10CQ9293	1.0000	original:center50:raw+sar	True
+old_License (380)_0.jpg	MH02JP1491	MH02JP1491	1.0000	original:trim10:raw+sar	True
+old_License (1668)_0.jpg	MH14DN6372	MH14DN6372	1.0000	original:original:raw+sar	True
+old_00000001_0.jpg	KL65G4218	KL65G4218	0.9879	original:trim10:raw+sar	True
+old_00000001_1.jpg	KL65G4218	KL65G421	0.9990	original:center60:raw+sar	False
+old_License (1264)_0.jpg	DL9CN5272	DL9CN5272	1.0000	original:original:raw+sar	True
+old_License (1827)_0.jpg	WB20H2215	WB20H2215	1.0000	original:original:raw+sar	True
+new_cam01_15-20-11-150192_DL14CL009__asis.jpg	DL14CL0094	DL14CL0094	0.9998	original:trim10:raw+sar	True
+old_License (109)_0.jpg	MH12FK1463	MH12FK1463	1.0000	original:original:raw+sar	True
+new_vehicle_20260820-094500__det.jpg	DL1CAC7239	DL1CAC7239	1.0000	original:trim18:raw+sar	True
+new_cam02_13-54-01-247744_HR10AR3240__det.jpg	HR10AR3240	HR10AR3240	1.0000	original:center60:raw+sar	True
+old_License (1698)_0.jpg	MH04EC9669	MH04EC9669	1.0000	original:trim10:raw+sar	True
+old_License (1245)_0.jpg	UP14AY2019	UP14AY2019	1.0000	original:original:raw+sar	True
+new_cam02_11-28-48-721706_DL2CBO4548__det.jpg	DL2CBD4548	DL2CBD4548	1.0000	original:center50:raw+sar	True
+old_License (1414)_0.jpg	WB06C9080	WB06C9080	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260820-114954__det.jpg	DL9CAX6604	DL9CAX6604	1.0000	original:original:raw+sar	True
+new_cam02_15-18-03-786564_25BH0978N__det.jpg	25BH0978M	25BH0978M	1.0000	original:center50:raw+sar	True
+old_License (1672)_0.jpg	KA04ML3183	KA04ML3183	1.0000	original:trim18:raw+sar	True
+new_cam01_14-32-02-082194_L1CKBSN45__asis.jpg	DL1CAD5004	DL1CAD5004	0.9985	original:original:raw+sar	True
+new_vehicle_20260819-104802__det.jpg	HR26GA0245	HR26GA0245	1.0000	original:center50:raw+sar	True
+old_License (1681)_0.jpg	DL3CBM6489	DL3CBM6489	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260820-091951__det.jpg	DL9CBD7781	DL9CBD7781	1.0000	original:trim10:raw+sar	True
+old_License (388)_0.jpg	MH04DN3751	MH04DN3751	1.0000	original:original:raw+sar	True
+old_License (1192)_0.jpg	AP29BJ6333	AP29BJ6333	1.0000	original:trim10:raw+sar	True
+old_License (1422)_0.jpg	AP09BV7573	AP09BV7573	1.0000	original:original:raw+sar	True
+old_License (295)_0.jpg	MH14DN0092	MH14DN0092	1.0000	original:original:raw+sar	True
+old_License (1226)_0.jpg	MH14DT9633	MH14DT9633	1.0000	original:trim10:raw+sar	True
+old_License (661)_0.jpg	MH05AX8009	MH05AX8009	1.0000	original:trim18:raw+sar	True
+old_License (1319)_0.jpg	DL3CBS3000	DL3CBS3000	1.0000	original:original:raw+sar	True
+old_License (1298)_0.jpg	DL2CAL4370	DL2CAL4370	1.0000	original:trim10:raw+sar	True
+old_License (64)_0.jpg	MH15CT4851	MH15CT4851	1.0000	original:original:raw+sar	True
+new_cam02_12-30-29-312770_DL7CW6770__det.jpg	DL7CW6770	DL7CW6770	1.0000	original:trim18:raw+sar	True
+new_vehicle_20260819-114418__det.jpg	HR87Q2667	HR87Q2667	1.0000	original:center50:raw+sar	True
+new_vehicle_20260819-103015__det.jpg	HR98AB9980	HR98AB9980	1.0000	original:center60:raw+sar	True
+old_License (1081)_0.jpg	TN22CZ4300	TN22CZ4300	1.0000	original:original:raw+sar	True
+old_License (467)_0.jpg	WB06E0652	WB06E0652	1.0000	original:original:raw+sar	True
+old_License (8)_0.jpg	HR26BG0383	HR26BG0383	1.0000	original:center60:raw+sar	True
+new_vehicle_20260820-104226__det.jpg	HR26FP1105	HR26FP1105	1.0000	original:trim10:raw+sar	True
+new_cam02_15-09-05-169264_DL4CBF1208__asis.jpg	DL4CBF1208	DL4CBF1208	0.9999	original:trim25:raw+sar	True
+old_License (414)_0.jpg	MH15CD0858	MH15CD0858	0.9922	original:center60:raw+sar	True
+old_License (1066)_0.jpg	MH12EX7388	MH12EX7388	1.0000	original:trim10:raw+sar	True
+new_cam01_14-45-41-070188_DL2CAV8498__det.jpg	DL2CAW8498	DL2CAW8498	1.0000	original:original:raw+sar	True
+old_License (937)_0.jpg	MH48A6131	MH48A6131	1.0000	original:original:raw+sar	True
+new_vehicle_20260819-100617__det.jpg	HR31T2355	HR31T2355	1.0000	original:trim10:raw+sar	True
+old_License (148)_0.jpg	MH03AW3008	MH03AW3008	1.0000	original:trim10:raw+sar	True
+old_00000340_0.jpg	MH20DV2363	MH20DV2363	1.0000	original:trim10:raw+sar	True
+old_License (712)_0.jpg	MH12GV5892	MH12GV5892	1.0000	original:trim10:raw+sar	True
+old_License (814)_0.jpg	AP23P0123	AP23P0123	1.0000	original:original:raw+sar	True
+old_00000373_0.jpg	AP39BD0606	AP39BD0666	0.8760	original:trim25:raw+sar	False
+old_License (1865)_0.jpg	MH01BG1180	MH01BG1180	1.0000	original:trim25:raw+sar	True
+new_cam01_12-54-14-728262_DL1CT2539__det.jpg	DL1CT2539	DL1CT2539	1.0000	original:trim18:raw+sar	True
+new_vehicle_20260819-090618__det.jpg	HR98E0428	HR98E0428	1.0000	original:center50:raw+sar	True
+new_cam02_14-11-12-820221_24BH2037K__det.jpg	24BH2037K	24BH2037K	1.0000	original:center50:raw+sar	True
+new_cam01_15-43-36-168261_OI10Y7757__asis.jpg	DL1CW7758	DL1CW7758	1.0000	original:original:raw+sar	True
+new_cam02_15-54-56-666863_DL1CW7884__asis.jpg	DL1CW7884	DL1CW7884	1.0000	original:center50:raw+sar	True
+old_License (1620)_0.jpg	MH02BG4844	MH02BG4844	1.0000	original:original:raw+sar	True
+new_vehicle_20260820-111510__det.jpg	HR98P6756	HR98P6756	1.0000	original:center60:raw+sar	True
+new_cam02_12-00-31-758487_DL12CV1891__det.jpg	DL12CV1891	DL12CV1891	1.0000	original:trim18:raw+sar	True
+old_License (1831)_0.jpg	MP48BD1069	MP43BD1069	1.0000	original:trim25:raw+sar	False
+old_License (1892)_0.jpg	MH03AZ5074	MH03AZ5074	1.0000	original:center60:raw+sar	True
+old_00000073_0.jpg	KL13AM1506	KL13AM1506	1.0000	original:original:raw+sar	True
+old_00000073_1.jpg	KL13AM1506	KL13AM1506	0.9923	original:trim10:raw+sar	True
+old_License (927)_0.jpg	MH14DA0570	MH14DA0570	1.0000	original:trim10:raw+sar	True
+old_License (1860)_0.jpg	MH02CP4984	MH02CP4984	1.0000	original:trim10:raw+sar	True
+new_cam02_13-40-54-712720_DL2CBO4424__det.jpg	DL2CBD4424	DL2CBD4424	0.9999	original:trim25:raw+sar	True
+old_00000371_0.jpg	KL18X9570	KL18X9570	1.0000	original:trim10:raw+sar	True
+old_00000371_1.jpg	KL11BQ6964	KL11BQ6964	1.0000	original:original:raw+sar	True
+old_00000371_2.jpg	KL11BQ6964	KL11BQ6964	0.9894	original:trim18:raw+sar	True
+new_cam01_11-34-30-559987_22BH0432C__det.jpg	22BH0432C	22BH0432C	1.0000	original:center50:raw+sar	True
+old_License (1072)_0.jpg	MP09CL5296	MP09CL5296	1.0000	original:trim18:raw+sar	True
+old_00000333_0.jpg	KL07CJ8999	KL07CJ8999	1.0000	original:original:raw+sar	True
+old_00000333_1.jpg	KL07CJ8999	KL07CJ8999	0.9951	original:original:raw+sar	True
+new_cam02_12-57-39-551972_DL2CAT5423__asis.jpg	DL2CAY5423	DL2CAY5423	1.0000	original:center50:raw+sar	True
+old_License (432)_0.jpg	MH01AR8912	MH01AR8912	1.0000	original:center60:raw+sar	True
+old_License (1712)_0.jpg	MH14DN8522	MH14DN8522	1.0000	original:original:raw+sar	True
+old_License (305)_0.jpg	DL4CAH8648	DL4CAH8648	1.0000	original:trim10:raw+sar	True
+old_License (1878)_0.jpg	MH12HF3767	MH12HF3767	1.0000	original:center60:raw+sar	True
+old_License (654)_0.jpg	MH02BT4600	MH02BT4600	1.0000	original:original:raw+sar	True
+new_cam02_14-51-39-443835_DL12O4452__asis.jpg	DL1ZD4452	DL1ZD4452	1.0000	original:original:raw+sar	True
+old_License (1677)_0.jpg	MH12EX2459	MH12EX2459	1.0000	original:original:raw+sar	True
+old_License (742)_0.jpg	DL10CD7259	DL10CD7259	1.0000	original:trim18:raw+sar	True
+old_License (849)_0.jpg	MH13AZ3659	MH13AZ3659	1.0000	original:trim10:raw+sar	True
+old_License (1490)_0.jpg	WB20U6373	WB20U6373	1.0000	original:original:raw+sar	True
+new_vehicle_20260819-105013__det.jpg	HR984127	HR984127	0.9994	original:trim25:indian_8+sar	True
+old_00000204_0.jpg	KL17T2393	KL17T2393	1.0000	original:original:raw+sar	True
+old_00000204_1.jpg	KL17T2393	KL17T2393	0.9970	original:original:raw+sar	True
+old_00000204_2.jpg	RJ36SP7636	RJ36SP7636	0.9999	original:original:raw+sar	True
+old_00000204_3.jpg	RJ36SP7636	RJ36SP7636	0.9969	original:original:raw+sar	True
+old_00000204_4.jpg	KL65M8846	KL65M8846	1.0000	original:original:raw+sar	True
+old_00000204_5.jpg	KL65M8846	KL65M8846	0.9898	original:trim18:raw+sar	True
+old_License (1721)_0.jpg	TN22CR0097	TN22CR0097	1.0000	original:trim10:raw+sar	True
+old_License (859)_0.jpg	MP41BC0824	MP41BC0824	0.9597	original:center60:raw+sar	True
+new_cam02_13-27-06-799884_HR29BA8883__det.jpg	HR29BA8883	HR29BA8883	1.0000	original:center50:raw+sar	True
+old_License (1087)_0.jpg	KL48A7761	KL48A7761	1.0000	original:trim10:raw+sar	True
+old_License (1352)_0.jpg	AP29AS8055	AP29AS8055	1.0000	original:trim10:raw+sar	True
+old_License (1793)_0.jpg	UP16T6435	UP16T6435	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260819-113214__det.jpg	HR55AQ6878	HR55A06878	0.9907	original:trim18:indian_9b_trim9+sar	False
+old_License (1200)_0.jpg	AP29AV2349	AP29AV2349	1.0000	original:original:raw+sar	True
+new_vehicle_20260820-120926__det.jpg	DL4CBB2874	DL4CBB2874	1.0000	original:trim25:raw+sar	True
+old_License (1354)_0.jpg	MH14BX0026	MH14BX0026	1.0000	original:trim18:raw+sar	True
+old_License (535)_0.jpg	TN06F1742	TN06F1742	1.0000	original:original:raw+sar	True
+old_License (1647)_0.jpg	DL3CBM9156	DL3CBM9156	1.0000	original:original:raw+sar	True
+new_cam02_16-05-39-320707_FD12CB1996__det.jpg	DL2CBG1996	DL2CBG1996	1.0000	original:trim18:raw+sar	True
+old_License (1327)_0.jpg	MH05AX3628	MH05AX3628	1.0000	original:original:raw+sar	True
+new_vehicle_20260820-110300__det.jpg	HR98D6558	HR98D6558	1.0000	original:original:raw+sar	True
+new_cam02_14-09-51-261733_UP17I1730__asis.jpg	UP17Y1730	UP17Y1730	1.0000	original:trim10:raw+sar	True
+new_vehicle_20260820-092211__det.jpg	HR02AW4899	HR02AW4899	1.0000	original:trim18:raw+sar	True
+old_License (1709)_0.jpg	TN37CA5164	TN37CA5164	1.0000	original:trim10:raw+sar	True
+old_License (1086)_0.jpg	TN20BT7899	TN20BT7899	1.0000	original:trim10:raw+sar	True
+old_License (1373)_0.jpg	MH06AN7207	MH06AN7207	1.0000	original:original:raw+sar	True
+new_cam02_11-45-17-728813_HR5BB1897__det.jpg	HR55BB1897	HR55BB1897	1.0000	original:center50:raw+sar	True
+old_License (1524)_0.jpg	MH04ED9960	MH04ED9960	1.0000	original:center50:raw+sar	True
+new_cam01_13-30-09-367986_DL3CI5003__asis.jpg	DL3CCX5003	DL3CCX5003	0.9793	original:trim25:raw+sar	True
+old_License (610)_0.jpg	DL2CAR2985	DL2CAR2985	1.0000	original:original:raw+sar	True
+new_cam02_12-24-01-732262_DL3CAR0256__det.jpg	DL9CAR0256	DL9CAR0256	1.0000	original:center60:raw+sar	True
+old_License (104)_0.jpg	WB02AB4631	WB02AB4631	1.0000	original:original:raw+sar	True
+old_License (1237)_0.jpg	MH12FU5326	MH12FU5326	1.0000	original:original:raw+sar	True
+old_License (860)_0.jpg	MP41BC0824	MP41BC0824	0.9597	original:center60:raw+sar	True
+old_License (699)_0.jpg	MH12GK4908	MH12GK4908	1.0000	original:original:raw+sar	True
+old_License (127)_0.jpg	MH12EM6015	MH12EM6015	1.0000	original:center60:raw+sar	True
+old_License (1384)_0.jpg	DL3CBJ8153	DL3CBJ8153	1.0000	original:trim10:raw+sar	True
+new_cam01_14-39-20-176202_DL1CAF0775__det.jpg	DL1CAF0775	DL1CAF0775	1.0000	original:trim18:raw+sar	True
+new_vehicle_20260819-105818__det.jpg	UP14FR3002	UP14FR3002	1.0000	original:trim10:raw+sar	True
+old_00000042_0.jpg	GJ07CF7956	GJ07CF7956	0.9996	original:original:raw+sar	True
+old_License (1703)_0.jpg	KA53N6415	KA53N6415	1.0000	original:trim18:raw+sar	True
+old_License (757)_0.jpg	DL7CP0206	DL7CP0206	1.0000	original:original:raw+sar	True
+new_cam02_12-47-19-715949_BR51CH1053__det.jpg	HR51CW1053	HR51CW1053	1.0000	original:center60:raw+sar	True
+new_vehicle_20260819-115230__det.jpg	DL9CAR3556	DL9CAR3556	1.0000	original:trim10:raw+sar	True
+new_cam02_14-32-04-403465_DL1CAD5004__det.jpg	DL1CAD5004	DL1CAD5004	1.0000	original:center50:raw+sar	True
+new_cam02_14-10-26-800378_DL1CT158__det.jpg	DL1CT1588	DL1CT1588	0.9999	original:center50:raw+sar	True
+old_License (684)_0.jpg	MH14BX2323	MH14BX2323	1.0000	original:original:raw+sar	True
+new_cam02_15-10-01-052010_HR55BB3666__det.jpg	HR55BB3666	HR55BB3666	1.0000	original:center60:raw+sar	True

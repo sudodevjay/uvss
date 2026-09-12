@@ -1,0 +1,642 @@
+@page "/"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.EntityFrameworkCore
+@using UvssService.Data
+@using UvssService.Data.Entities
+@using UvssService.Lanes
+@inject LaneStateStore LaneStateStore
+@inject IDbContextFactory<UvssDbContext> DbFactory
+@inject ScanEventNotifier ScanEventNotifier
+@inject UvssService.Streaming.CameraStatusRegistry CameraStatusRegistry
+@implements IDisposable
+
+<PageTitle>UVSS Dashboard</PageTitle>
+
+<div class="h-full w-full flex flex-col gap-0 m-0 p-0 box-border text-[#222]">
+    @if (LaneStateStore.All.Count == 0)
+    {
+        <p class="text-[#777] text-[0.85rem]">No lanes configured/enabled -- check Lane Setup (Controllers with Enabled=true).</p>
+    }
+
+    @foreach (var lane in LaneStateStore.All)
+    {
+        var view = GetView(lane);
+        var selectedId = _selectedEntryId.TryGetValue(lane.LaneName, out var sid) ? sid : null;
+        var heroGrowing = view.IsLive && lane.Status == "Active";
+        var heroBoxClasses = heroGrowing ? "flex justify-end" : "flex justify-center items-center";
+        var heroImgClasses = heroGrowing ? "h-full w-auto block shrink-0" : "w-full h-full object-contain block";
+        var heroZoom = GetZoom(lane.LaneName);
+        var heroZoomOrigin = heroGrowing ? "right center" : "center center";
+
+        <section class="flex-1 flex flex-col gap-1 min-h-0 bg-[#ececec] border border-[#ccc] m-0 p-1 box-border">
+
+            <!-- One shared 4-column grid for BOTH rows -- this is what
+                 guarantees the log panel (row 1, col 4) and the plate tile
+                 (row 2, col 4) share the exact same left/right edges,
+                 instead of computing their widths two different ways
+                 (a fixed sidebar px width vs. an even 4-way split) that
+                 happen to not match. -->
+            <div class="flex-1 min-h-0 grid grid-cols-4 grid-rows-[62fr_38fr] gap-1.5">
+                <!-- The saved/displayed image is rotated 90° so the vehicle's
+                     direction of travel runs left-to-right (see
+                     EncodeUnderVehicleJpeg) -- so during a live pass this box's
+                     content keeps growing WIDER (not taller), with the front of
+                     the vehicle fixed at the left edge and new lines extending
+                     the right edge. Neither "cover" nor "contain" (which both
+                     re-fit the WHOLE image into a fixed box every update) work
+                     here -- contain visibly shrinks the image smaller and
+                     smaller as it grows, since it must keep shrinking to fit a
+                     wider and wider image into the same box. Instead: while
+                     growing, the image renders at a *fixed, consistent scale*
+                     (height always = box height, width follows naturally) and
+                     justify-end + overflow-hidden means once it's wider than
+                     the box, only the newest (rightmost) columns stay visible
+                     and the oldest ones scroll off the left -- same as a real
+                     UVSS operator console. Once the pass is complete (or a
+                     historical pass is being reviewed), it switches to
+                     object-contain so the *whole* finished image is visible
+                     regardless of vehicle length. -->
+                <div class="col-start-1 col-end-4 row-start-1 relative min-w-0 min-h-0 overflow-hidden bg-[#e2e2e2] @heroBoxClasses">
+                    @if (!view.IsLive)
+                    {
+                        <div class="absolute top-1.5 left-1.5 z-10 bg-[#b0700a] text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-2">
+                            <span>REVIEWING PASS #@view.EntryId</span>
+                            <a href="javascript:void(0)" class="underline font-normal cursor-pointer" @onclick="() => ReturnToLive(lane.LaneName)">back to live</a>
+                        </div>
+                    }
+                    @if (view.UnderVehicleImageJpeg is { } uvJpeg)
+                    {
+                        var hasHighlight = view.HighlightedUnderVehicleImageJpeg is not null;
+                        var heroViewMode = hasHighlight ? GetHeroViewMode(lane.LaneName) : "single";
+
+                        @if (hasHighlight && heroViewMode == "dual")
+                        {
+                            <!-- Two stacked panels -- the plain scan and a
+                                 second copy with any foreign-object detector
+                                 hits painted on -- same idea as the reference
+                                 UVSS console's dual scan view. Both share the
+                                 one zoom level so they stay comparable. -->
+                            <div class="w-full h-full flex flex-col gap-0.5">
+                                <div class="flex-1 min-h-0 flex items-center justify-center overflow-hidden bg-[#e2e2e2]">
+                                    <img class="w-full h-full object-contain block" style="transform: scale(@heroZoom.ToString(CultureInfo.InvariantCulture));"
+                                         src="@ToDataUrl(uvJpeg)" alt="under-vehicle scan" />
+                                </div>
+                                <div class="flex-1 min-h-0 flex items-center justify-center overflow-hidden bg-[#e2e2e2]">
+                                    <img class="w-full h-full object-contain block" style="transform: scale(@heroZoom.ToString(CultureInfo.InvariantCulture));"
+                                         src="@ToDataUrl(view.HighlightedUnderVehicleImageJpeg!)" alt="under-vehicle scan with flagged regions highlighted" />
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <img class="@heroImgClasses" style="transform: scale(@heroZoom.ToString(CultureInfo.InvariantCulture)); transform-origin: @heroZoomOrigin;"
+                                 src="@ToDataUrl(uvJpeg)" alt="under-vehicle scan" />
+                        }
+
+                        <!-- Floating tool strip over the scan's right edge --
+                             same idea as a real UVSS console's side toolbar
+                             next to the chassis image: dual/single view
+                             toggle (only when a highlight exists), fit/reset,
+                             save a snapshot, zoom in/out and a fine zoom
+                             slider. -->
+                        <div class="absolute right-1.5 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 z-10">
+                            @if (hasHighlight)
+                            {
+                                <button type="button" title="dual view -- plain scan + highlighted detections"
+                                        class="w-7 h-7 rounded @(heroViewMode == "dual" ? "bg-[#1a5fb4]" : "bg-black/55 hover:bg-black/70") text-white flex items-center justify-center cursor-pointer"
+                                        @onclick='() => SetHeroViewMode(lane.LaneName, "dual")'>
+                                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="2" y="3" width="16" height="6" rx="1" />
+                                        <rect x="2" y="11" width="16" height="6" rx="1" />
+                                    </svg>
+                                </button>
+                                <button type="button" title="single view -- plain scan only"
+                                        class="w-7 h-7 rounded @(heroViewMode == "single" ? "bg-[#1a5fb4]" : "bg-black/55 hover:bg-black/70") text-white flex items-center justify-center cursor-pointer"
+                                        @onclick='() => SetHeroViewMode(lane.LaneName, "single")'>
+                                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="2" y="6" width="16" height="8" rx="1" />
+                                    </svg>
+                                </button>
+                                <div class="w-5 border-t border-white/30 my-0.5"></div>
+                            }
+                            <button type="button" title="fit to width / reset zoom"
+                                    class="w-7 h-7 rounded bg-black/55 hover:bg-black/70 text-white flex items-center justify-center cursor-pointer"
+                                    @onclick="() => ResetZoom(lane.LaneName)">
+                                <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="2" y1="10" x2="18" y2="10" />
+                                    <polyline points="6,5 2,10 6,15" />
+                                    <polyline points="14,5 18,10 14,15" />
+                                </svg>
+                            </button>
+                            <a title="save snapshot" download="@($"{lane.LaneName}_undervehicle_{DateTime.Now:HHmmss}.jpg")" href="@ToDataUrl(uvJpeg)"
+                               class="w-7 h-7 rounded bg-black/55 hover:bg-black/70 text-white flex items-center justify-center cursor-pointer">
+                                <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="2.5" y="3.5" width="15" height="13" rx="1.5" />
+                                    <circle cx="7" cy="8" r="1.1" fill="currentColor" stroke="none" />
+                                    <path d="M3 15l4.5-4.5 3 3 3.5-4 4 5.5" />
+                                </svg>
+                            </a>
+                            <button type="button" title="zoom in"
+                                    class="w-7 h-7 rounded bg-black/55 hover:bg-black/70 text-white flex items-center justify-center cursor-pointer"
+                                    @onclick="() => ZoomIn(lane.LaneName)">
+                                <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="8.5" cy="8.5" r="5.5" />
+                                    <line x1="8.5" y1="6" x2="8.5" y2="11" />
+                                    <line x1="6" y1="8.5" x2="11" y2="8.5" />
+                                    <line x1="13" y1="13" x2="18" y2="18" />
+                                </svg>
+                            </button>
+                            <button type="button" title="zoom out"
+                                    class="w-7 h-7 rounded bg-black/55 hover:bg-black/70 text-white flex items-center justify-center cursor-pointer"
+                                    @onclick="() => ZoomOut(lane.LaneName)">
+                                <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="8.5" cy="8.5" r="5.5" />
+                                    <line x1="6" y1="8.5" x2="11" y2="8.5" />
+                                    <line x1="13" y1="13" x2="18" y2="18" />
+                                </svg>
+                            </button>
+                            <!-- Dedicated zoom slider, capped by its own +/-
+                                 nudge buttons (top = zoom in, bottom = zoom
+                                 out) -- same as the reference toolbar's
+                                 slider, separate from the magnifying-glass
+                                 buttons above. -->
+                            <div class="flex flex-col items-center gap-1 mt-1">
+                                <button type="button" title="zoom in"
+                                        class="w-6 h-6 rounded-full bg-black/55 hover:bg-black/70 text-white flex items-center justify-center cursor-pointer"
+                                        @onclick="() => ZoomIn(lane.LaneName)">
+                                    <svg viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                        <line x1="10" y1="4" x2="10" y2="16" />
+                                        <line x1="4" y1="10" x2="16" y2="10" />
+                                    </svg>
+                                </button>
+                                <input type="range" min="1" max="4" step="0.25" value="@heroZoom.ToString(CultureInfo.InvariantCulture)"
+                                       title="zoom level"
+                                       @oninput="e => OnZoomInput(e, lane.LaneName)"
+                                       class="cursor-pointer"
+                                       style="writing-mode: vertical-lr; direction: rtl; width: 4px; height: 64px; accent-color: #3b82c4; background: transparent;" />
+                                <button type="button" title="zoom out"
+                                        class="w-6 h-6 rounded-full bg-black/55 hover:bg-black/70 text-white flex items-center justify-center cursor-pointer"
+                                        @onclick="() => ZoomOut(lane.LaneName)">
+                                    <svg viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                        <line x1="4" y1="10" x2="16" y2="10" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="w-full h-full flex items-center justify-center bg-[#e2e2e2] text-[#777] text-[0.8rem]">waiting for a pass</div>
+                    }
+                </div>
+
+                <!-- Shares column 4 of this grid with the plate tile below
+                     it, so both elements' left/right edges come from the
+                     exact same grid track instead of two independently
+                     computed widths. -->
+                <aside class="col-start-4 row-start-1 bg-[#ececec] border border-[#ccc] flex flex-col min-h-0 min-w-0 p-1.5 box-border">
+                    <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5">
+                        <!-- Each row's thumbnail is the FULL-resolution
+                             under-vehicle JPEG embedded as base64 (only
+                             sized down visually via CSS, not actually
+                             smaller data) -- this whole @foreach repeats
+                             per lane (see the enclosing loop above), so
+                             Recent(200) here meant up to 200 full-size
+                             images x every enabled lane embedded in the
+                             page and re-diffed on every render, which was
+                             the real cause of a very slow initial load and
+                             a stuttering live dashboard once more than one
+                             lane was running. 15 keeps the visible list
+                             useful without that cost; Recent(500) at
+                             SelectEntry below is unaffected, so clicking an
+                             older row (once real per-row pagination exists)
+                             still isn't capped at just these 15. -->
+                        @foreach (var entry in _recentEvents.Take(15))
+                        {
+                            var isSelected = entry.Id == selectedId;
+                            var rowHoverClass = isSelected ? "bg-[#cfe3ff]" : "hover:bg-[#e2e2e2]";
+                            <!-- Each row = a large thumbnail of that pass's
+                                 under-vehicle scan next to 4 icon-labeled
+                                 detail lines (time / source / flag status /
+                                 plate) -- same shape as a real UVSS operator
+                                 console's event list. Clickable to pin the
+                                 whole dashboard to that one pass (see
+                                 GetView/SelectEntry). -->
+                            <div class="flex flex-row items-stretch gap-2 border-b border-[#ccc] p-1.5 text-xs cursor-pointer @rowHoverClass"
+                                 @onclick="() => SelectEntry(lane.LaneName, entry.Id)">
+                                <div class="flex-none w-[130px] h-[78px] bg-[#ccc] overflow-hidden border border-[#bbb]">
+                                    @if (ReadImageBytes(entry.UnderVehicleImagePath) is { } thumbJpeg)
+                                    {
+                                        <img class="w-full h-full object-cover block" src="@ToDataUrl(thumbJpeg)" alt="pass scan" />
+                                    }
+                                    else
+                                    {
+                                        <div class="w-full h-full bg-[#ccc]"></div>
+                                    }
+                                </div>
+                                <div class="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
+                                    <span class="flex items-center gap-1 text-[#777] text-[0.68rem]">
+                                        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" class="shrink-0"><circle cx="8" cy="8" r="6.5" /><path d="M8 4.5V8l3 1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                        @entry.Timestamp.ToString("M/d/yyyy HH:mm:ss")
+                                    </span>
+                                    <span class="flex items-center gap-1 text-[#555] text-[0.7rem] whitespace-nowrap overflow-hidden text-ellipsis">
+                                        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" class="shrink-0"><rect x="1.5" y="4.5" width="9" height="7" rx="1" /><path d="M10.5 7l4-2.2v6.4l-4-2.2z" stroke-linejoin="round" /></svg>
+                                        @(entry.LaneName.ToUpperInvariant()) &mdash; UVSS SCAN
+                                    </span>
+                                    <span class="flex items-center gap-1 text-[0.7rem] font-bold @(entry.ForeignObjectDetected ? "text-[#c23b1f]" : "text-[#2c7a2c]")">
+                                        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" class="shrink-0"><path d="M8 2 1.5 13h13z" stroke-linejoin="round" /><line x1="8" y1="6.5" x2="8" y2="9.3" stroke-linecap="round" /><circle cx="8" cy="11.2" r="0.6" fill="currentColor" stroke="none" /></svg>
+                                        @(entry.ForeignObjectDetected ? "OBJECT FLAGGED" : "no object detected")
+                                    </span>
+                                    <span class="flex items-center gap-1 text-[0.85rem] flex-wrap">
+                                        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" class="shrink-0 text-[#777]"><rect x="1.5" y="3" width="13" height="10" rx="1.2" /><line x1="4" y1="10.3" x2="8" y2="10.3" /></svg>
+                                        <span class="font-bold text-[#111] whitespace-nowrap">@(string.IsNullOrEmpty(entry.PlateText) ? "PLATE NOT READ" : entry.PlateText)</span>
+                                        <span class="text-[0.6rem] font-bold whitespace-nowrap @(entry.PlateTextValid ? "text-[#2c7a2c]" : "text-[#b0700a]")">
+                                            @(entry.PlateTextValid ? "CONFIRMED" : "UNCONFIRMED")
+                                        </span>
+                                    </span>
+                                </div>
+                            </div>
+                        }
+                        @if (_recentEvents.Count == 0)
+                        {
+                            <p class="text-[#777] text-[0.85rem]">no events yet</p>
+                        }
+                    </div>
+                </aside>
+
+                <!-- The 3 camera tiles + plate tile auto-place into row 2's
+                     four columns in DOM order (row 1 is already full: hero
+                     spans cols 1-3, log takes col 4) -- each shows exactly
+                     one camera's live stream, no joined/combined feeds.
+
+                     While a pass is actually Active, the raw live MJPEG
+                     stream shows (that's genuinely the vehicle currently
+                     being scanned). Once idle, showing the raw live stream
+                     again would show whatever the simulated cameras have
+                     since cycled to -- a DIFFERENT vehicle than the one
+                     PlateText/PlateCropJpeg still describe (the last
+                     completed pass). So idle shows lane.LastPass*FrameJpeg
+                     instead: the same frozen snapshot the plate came from.
+
+                     This "VIDEO STREAM" tile (the ANPR camera) is the one
+                     exception -- it ALWAYS shows the raw live MJPEG feed,
+                     completely ignoring view.IsLive/lane.Status, so clicking
+                     an older sidebar entry to review its plate/driver/UVSS
+                     snapshot never stops this feed. Only the UVSS hero, the
+                     Driver tile, and the Plate tile pin to the reviewed
+                     pass.
+
+                     The <img> is only rendered at all once
+                     CameraStatusRegistry confirms this camera has actually
+                     delivered a frame recently -- an MJPEG
+                     (multipart/x-mixed-replace) HTTP response never
+                     completes for as long as real frames keep arriving,
+                     which is exactly what live video requires, but opening
+                     that same never-ending request against a camera that
+                     ISN'T actually connected (nothing will ever arrive to
+                     publish) just leaves the browser tab's loading spinner
+                     stuck forever for no reason. So: genuinely streaming ->
+                     keep the tab "loading" for as long as real video is
+                     flowing (expected); nothing connected -> don't open the
+                     request at all. -->
+                <div class="row-start-2 relative bg-[#e2e2e2] min-h-0 border border-[#ccc] overflow-hidden">
+                    @if (CameraStatusRegistry.IsOnline(lane.LaneName, "anpr"))
+                    {
+                        <img class="w-full h-full object-cover block" src="/stream/@lane.LaneName/anpr" alt="anpr camera" />
+                    }
+                    else
+                    {
+                        <div class="w-full h-full flex items-center justify-center bg-[#e2e2e2] text-[#777] text-[0.8rem]">camera offline</div>
+                    }
+                    <span class="absolute bottom-[2px] left-[3px] text-[0.62rem] text-[#222] tracking-[0.04em] bg-white/65 px-[3px]">VIDEO STREAM</span>
+                </div>
+                <div class="row-start-2 relative bg-[#e2e2e2] min-h-0 border border-[#ccc] overflow-hidden">
+                    @if (view.IsLive && lane.Status == "Active")
+                    {
+                        <img class="w-full h-full object-cover block" src="/stream/@lane.LaneName/driver" alt="driver camera" />
+                    }
+                    else if (view.IsLive && lane.LastPassDriverFrameJpeg is { } liveDriverJpeg)
+                    {
+                        <img class="w-full h-full object-cover block" src="@ToDataUrl(liveDriverJpeg)" alt="driver camera (last pass, best shot)" />
+                    }
+                    else if (!view.IsLive && view.DriverFrameJpeg is { } driverJpeg)
+                    {
+                        <img class="w-full h-full object-cover block" src="@ToDataUrl(driverJpeg)" alt="driver camera (reviewed pass)" />
+                    }
+                    else
+                    {
+                        <div class="w-full h-full flex items-center justify-center bg-[#e2e2e2] text-[#777] text-[0.8rem]">no image saved</div>
+                    }
+                    <span class="absolute bottom-[2px] left-[3px] text-[0.62rem] text-[#222] tracking-[0.04em] bg-white/65 px-[3px]">DRIVER</span>
+                </div>
+                <!-- This site has no separate overview/wide-angle camera
+                     (see LaneOptions.OverviewCamera's own remarks) -- the
+                     ANPR camera is what actually captures the whole
+                     vehicle, so THIS tile reuses that same feed/saved image
+                     to show a per-pass vehicle photo. It's not simply a
+                     duplicate of the "VIDEO STREAM" tile above: that one
+                     always shows the raw live feed no matter what (see its
+                     own remarks), while this one freezes to the SELECTED
+                     pass's own vehicle snapshot when reviewing history --
+                     exactly like Driver/Plate already do -- so clicking an
+                     older row still shows what the vehicle looked like at
+                     that specific pass. -->
+                <div class="row-start-2 relative bg-[#e2e2e2] min-h-0 border border-[#ccc] overflow-hidden">
+                    @if (view.IsLive && lane.Status == "Active")
+                    {
+                        <img class="w-full h-full object-cover block" src="/stream/@lane.LaneName/anpr" alt="vehicle camera" />
+                    }
+                    else if (view.IsLive && lane.LastPassAnprFrameJpeg is { } liveVehicleJpeg)
+                    {
+                        <img class="w-full h-full object-cover block" src="@ToDataUrl(liveVehicleJpeg)" alt="vehicle camera (last pass)" />
+                    }
+                    else if (!view.IsLive && view.VehicleFrameJpeg is { } vehicleJpeg)
+                    {
+                        <img class="w-full h-full object-cover block" src="@ToDataUrl(vehicleJpeg)" alt="vehicle camera (reviewed pass)" />
+                    }
+                    else
+                    {
+                        <div class="w-full h-full flex items-center justify-center bg-[#e2e2e2] text-[#777] text-[0.8rem]">no image saved</div>
+                    }
+                    <span class="absolute bottom-[2px] left-[3px] text-[0.62rem] text-[#222] tracking-[0.04em] bg-white/65 px-[3px]">VEHICLE</span>
+                </div>
+                <!-- Same height/width as the other 3 video tiles in this row,
+                     just showing the plate crop + vehicle number stacked
+                     inside instead of a live camera feed. -->
+                <div class="row-start-2 relative bg-[#e2e2e2] min-h-0 border border-[#ccc] overflow-hidden flex flex-col">
+                    <div class="flex-1 min-h-0 bg-[#e2e2e2]">
+                        @if (view.PlateCropJpeg is { } plateJpeg)
+                        {
+                            <img class="w-full h-full object-contain block" src="@ToDataUrl(plateJpeg)" alt="plate" />
+                        }
+                        else
+                        {
+                            <div class="w-full h-full flex items-center justify-center bg-[#e2e2e2] text-[#777] text-[0.8rem]">plate not read yet</div>
+                        }
+                    </div>
+                    <div class="flex-none bg-[#d8d8d8] border-t border-[#ccc] px-[0.4rem] py-[0.3rem] flex flex-col gap-[0.1rem]">
+                        @if (!string.IsNullOrEmpty(view.PlateText))
+                        {
+                            <span class="text-[1.05rem] font-bold tracking-[0.5px] text-[#111] leading-[1.15]">@view.PlateText</span>
+                            <span class="text-[0.62rem] text-[#555]">
+                                @view.PlateStateName &nbsp;|&nbsp; @(view.PlateTextValid ? "CONFIRMED" : "UNCONFIRMED")
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="text-[0.72rem] font-normal text-[#777]">@(view.PlateOcrAvailable ? "-- not read yet --" : "OCR unavailable")</span>
+                        }
+                    </div>
+                    <span class="absolute bottom-[2px] left-[3px] text-[0.62rem] text-[#222] tracking-[0.04em] bg-white/65 px-[3px]">PLATE</span>
+                </div>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    // How long a clicked-open historical pass stays pinned in the main view
+    // before the dashboard goes back to following the live lane on its own
+    // -- an operator glancing at an old pass shouldn't have to remember to
+    // switch back manually.
+    private static readonly TimeSpan ReviewDwellTime = TimeSpan.FromSeconds(20);
+
+    private readonly Dictionary<string, long?> _selectedEntryId = new();
+    private readonly Dictionary<string, System.Threading.Timer> _revertTimers = new();
+
+    // Hero-image zoom (the floating tool strip over the UVSS scan) --
+    // 1.0 = fit to width/height (no zoom), 4.0 = max zoom. Per-lane so
+    // multiple lanes don't share one zoom level.
+    private const double HeroZoomMin = 1.0;
+    private const double HeroZoomMax = 4.0;
+    private const double HeroZoomStep = 0.5;
+    private readonly Dictionary<string, double> _heroZoom = new();
+
+    // "dual" (plain scan + highlighted-detections scan stacked) or "single"
+    // (plain scan only) -- only meaningful once a pass has at least one
+    // foreign-object detection (see PassView.HighlightedUnderVehicleImageJpeg);
+    // defaults to "dual" so a flagged pass is impossible to miss.
+    private readonly Dictionary<string, string> _heroViewMode = new();
+
+    private sealed record PassView(
+        bool IsLive,
+        long EntryId,
+        byte[]? UnderVehicleImageJpeg,
+        byte[]? HighlightedUnderVehicleImageJpeg,
+        byte[]? DriverFrameJpeg,
+        byte[]? VehicleFrameJpeg,
+        byte[]? PlateCropJpeg,
+        string PlateText,
+        string PlateStateName,
+        bool PlateTextValid,
+        bool PlateOcrAvailable);
+
+    /// <summary>Cached from MySQL (see ScanEvent) rather than an in-memory
+    /// store -- loaded once at startup and reloaded whenever
+    /// ScanEventNotifier fires, so the sidebar log and "review an older
+    /// pass" both keep working exactly as before, just backed by a database
+    /// that survives a restart instead of a 500-entry ring buffer.</summary>
+    private List<ScanEvent> _recentEvents = new();
+
+    /// <summary>Redraws the VIDEO STREAM tile's online/offline check on a
+    /// timer -- CameraStatusRegistry.IsOnline is a plain snapshot (no event
+    /// to subscribe to), so without this the tile would only flip states on
+    /// the next unrelated re-render (e.g. a loop status change) instead of
+    /// promptly noticing a camera coming online or going quiet.</summary>
+    private System.Threading.Timer? _cameraStatusRefreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        foreach (var lane in LaneStateStore.All)
+        {
+            lane.Changed += OnChanged;
+        }
+        ScanEventNotifier.Changed += OnChanged;
+        _cameraStatusRefreshTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        await LoadRecentEvents();
+    }
+
+    private async Task LoadRecentEvents()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _recentEvents = await db.ScanEvents.OrderByDescending(e => e.Id).Take(500).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Home: could not reach the scan history database (is MySQL running?): {ex.Message}");
+        }
+    }
+
+    private void OnChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadRecentEvents();
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Images are stored on disk with only the path recorded in
+    /// ScanEvent (see its own remarks) -- this reads the bytes back in on
+    /// demand for display, the same synchronous local-disk cost the old
+    /// in-memory store's byte[] fields had already accepted for these same
+    /// 15 thumbnails (see the comment above this loop). Missing file/null
+    /// path both just mean "no image for this slot", not an error.</summary>
+    private static byte[]? ReadImageBytes(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return null;
+        }
+        try
+        {
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Live lane state by default; a clicked-open row in the log
+    /// panel pins the UVSS hero, Driver tile, and Plate tile to that pass's
+    /// own saved snapshot instead, until it reverts (see ReviewDwellTime) or
+    /// the operator clicks "back to live". The VIDEO STREAM (ANPR camera)
+    /// tile deliberately ignores this entirely -- see its own remarks --
+    /// and the Vehicle/overview tile still follows IsLive here too, though
+    /// this site has no overview camera configured so it stays blank either
+    /// way.</summary>
+    private PassView GetView(LaneState lane)
+    {
+        if (_selectedEntryId.TryGetValue(lane.LaneName, out var id) && id is { } selectedId)
+        {
+            var entry = _recentEvents.FirstOrDefault(e => e.Id == selectedId);
+            if (entry != null)
+            {
+                return new PassView(
+                    IsLive: false, EntryId: entry.Id,
+                    UnderVehicleImageJpeg: ReadImageBytes(entry.UnderVehicleImagePath),
+                    HighlightedUnderVehicleImageJpeg: ReadImageBytes(entry.HighlightedUnderVehicleImagePath),
+                    DriverFrameJpeg: ReadImageBytes(entry.DriverImagePath),
+                    VehicleFrameJpeg: ReadImageBytes(entry.AnprImagePath),
+                    PlateCropJpeg: ReadImageBytes(entry.PlateCropImagePath),
+                    PlateText: entry.PlateText,
+                    PlateStateName: entry.PlateStateName,
+                    PlateTextValid: entry.PlateTextValid,
+                    PlateOcrAvailable: true);
+            }
+        }
+        return new PassView(
+            IsLive: true, EntryId: 0,
+            UnderVehicleImageJpeg: lane.UnderVehicleImageJpeg,
+            HighlightedUnderVehicleImageJpeg: lane.HighlightedUnderVehicleImageJpeg,
+            DriverFrameJpeg: lane.DriverFrameJpeg,
+            VehicleFrameJpeg: lane.AnprFrameJpeg,
+            PlateCropJpeg: lane.PlateCropJpeg,
+            PlateText: lane.PlateText,
+            PlateStateName: lane.PlateStateName,
+            PlateTextValid: lane.PlateTextValid,
+            PlateOcrAvailable: lane.PlateOcrAvailable);
+    }
+
+    private void SelectEntry(string laneName, long entryId)
+    {
+        // Clicking the already-selected row toggles back to live, same as
+        // "back to live".
+        if (_selectedEntryId.TryGetValue(laneName, out var current) && current == entryId)
+        {
+            ReturnToLive(laneName);
+            return;
+        }
+
+        _selectedEntryId[laneName] = entryId;
+        _heroZoom.Remove(laneName);
+        _heroViewMode.Remove(laneName);
+        RestartRevertTimer(laneName);
+        StateHasChanged();
+    }
+
+    private void ReturnToLive(string laneName)
+    {
+        _selectedEntryId[laneName] = null;
+        _heroZoom.Remove(laneName);
+        _heroViewMode.Remove(laneName);
+        if (_revertTimers.TryGetValue(laneName, out var timer))
+        {
+            timer.Dispose();
+            _revertTimers.Remove(laneName);
+        }
+        StateHasChanged();
+    }
+
+    private double GetZoom(string laneName) => _heroZoom.TryGetValue(laneName, out var z) ? z : HeroZoomMin;
+
+    private void SetZoom(string laneName, double zoom)
+    {
+        _heroZoom[laneName] = Math.Clamp(zoom, HeroZoomMin, HeroZoomMax);
+        StateHasChanged();
+    }
+
+    private void ZoomIn(string laneName) => SetZoom(laneName, GetZoom(laneName) + HeroZoomStep);
+
+    private void ZoomOut(string laneName) => SetZoom(laneName, GetZoom(laneName) - HeroZoomStep);
+
+    private void ResetZoom(string laneName) => SetZoom(laneName, HeroZoomMin);
+
+    private string GetHeroViewMode(string laneName) => _heroViewMode.TryGetValue(laneName, out var mode) ? mode : "dual";
+
+    private void SetHeroViewMode(string laneName, string mode)
+    {
+        _heroViewMode[laneName] = mode;
+        StateHasChanged();
+    }
+
+    private void OnZoomInput(ChangeEventArgs e, string laneName)
+    {
+        if (double.TryParse(e.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var zoom))
+        {
+            SetZoom(laneName, zoom);
+        }
+    }
+
+    private void RestartRevertTimer(string laneName)
+    {
+        if (_revertTimers.TryGetValue(laneName, out var existing))
+        {
+            existing.Dispose();
+        }
+        _revertTimers[laneName] = new System.Threading.Timer(_ =>
+        {
+            // Mutate _selectedEntryId only inside InvokeAsync, not on this
+            // timer's own thread-pool thread -- SelectEntry/ReturnToLive
+            // both run on Blazor's renderer sync context via @onclick, and
+            // touching the same dictionary from a second thread concurrently
+            // would race with that.
+            _ = InvokeAsync(() =>
+            {
+                _selectedEntryId[laneName] = null;
+                StateHasChanged();
+            });
+        }, null, ReviewDwellTime, Timeout.InfiniteTimeSpan);
+    }
+
+    private static string ToDataUrl(byte[] jpegBytes) =>
+        $"data:image/jpeg;base64,{Convert.ToBase64String(jpegBytes)}";
+
+    public void Dispose()
+    {
+        foreach (var lane in LaneStateStore.All)
+        {
+            lane.Changed -= OnChanged;
+        }
+        ScanEventNotifier.Changed -= OnChanged;
+        _cameraStatusRefreshTimer?.Dispose();
+        foreach (var timer in _revertTimers.Values)
+        {
+            timer.Dispose();
+        }
+    }
+}
