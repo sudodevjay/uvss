@@ -53,10 +53,6 @@ namespace UvssService.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<string>("TestImageDir")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -100,13 +96,6 @@ namespace UvssService.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<double>("SimulatedIdleSeconds")
-                        .HasColumnType("double");
-
-                    b.Property<string>("SimulatedSegmentSeconds")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
                     b.Property<int>("TcpPort")
                         .HasColumnType("int");
 
@@ -143,10 +132,6 @@ namespace UvssService.Migrations
                         .HasColumnType("longtext");
 
                     b.Property<string>("Source")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("TestImageDir")
                         .IsRequired()
                         .HasColumnType("longtext");
 
@@ -245,17 +230,7 @@ namespace UvssService.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<int>("SimulatedFrameHeightPx")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SimulatedFramesPerSecond")
-                        .HasColumnType("int");
-
                     b.Property<string>("Source")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("TestImagePath")
                         .IsRequired()
                         .HasColumnType("longtext");
 

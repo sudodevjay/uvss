@@ -37,22 +37,20 @@ public static class LaneRuntimeConfigLoader
                 Interlock = new InterlockOptions
                 {
                     Source = c.InterlockSource,
-                    LoopPositionsMetres = ParseDoubles(c.LoopPositionsMetres, new List<double> { 0.0, 3.0 }),
+                    LoopPositionsMetres = ParseDoubles(c.LoopPositionsMetres),
                     ControllerIp = c.Ip,
                     TcpPort = c.TcpPort,
                     DebounceMs = c.DebounceMs,
-                    SimulatedIdleSeconds = c.SimulatedIdleSeconds,
-                    SimulatedSegmentSeconds = ParseDoubles(c.SimulatedSegmentSeconds, new List<double> { 6.0 }),
                 },
             };
 
             if (driverCameras.TryGetValue(c.LaneId, out var driverCam))
             {
-                lane.DriverCamera = ToIpCameraOptions(driverCam.CameraName, driverCam.Ip, driverCam.Username, driverCam.Password, driverCam.Enabled, driverCam.Source, driverCam.TestImageDir);
+                lane.DriverCamera = ToIpCameraOptions(driverCam.CameraName, driverCam.Ip, driverCam.Username, driverCam.Password, driverCam.Enabled, driverCam.Source);
             }
             if (anprCameras.TryGetValue(c.LaneId, out var anprCam))
             {
-                lane.AnprCamera = ToIpCameraOptions(anprCam.CameraName, anprCam.Ip, anprCam.Username, anprCam.Password, anprCam.Enabled, anprCam.Source, anprCam.TestImageDir);
+                lane.AnprCamera = ToIpCameraOptions(anprCam.CameraName, anprCam.Ip, anprCam.Username, anprCam.Password, anprCam.Enabled, anprCam.Source);
             }
             if (uvssCameras.TryGetValue(c.LaneId, out var uvssCam))
             {
@@ -60,9 +58,6 @@ public static class LaneRuntimeConfigLoader
                 {
                     Source = uvssCam.Source,
                     DeviceSerial = uvssCam.DeviceSerial,
-                    TestImagePath = uvssCam.TestImagePath,
-                    SimulatedFramesPerSecond = uvssCam.SimulatedFramesPerSecond,
-                    SimulatedFrameHeightPx = uvssCam.SimulatedFrameHeightPx,
                 };
             }
 
@@ -72,7 +67,7 @@ public static class LaneRuntimeConfigLoader
         return lanes;
     }
 
-    private static IpCameraOptions ToIpCameraOptions(string name, string ip, string username, string password, bool enabled, string source, string testImageDir) => new()
+    private static IpCameraOptions ToIpCameraOptions(string name, string ip, string username, string password, bool enabled, string source) => new()
     {
         Name = name,
         Ip = ip,
@@ -80,18 +75,17 @@ public static class LaneRuntimeConfigLoader
         Password = password,
         Enabled = enabled,
         Source = source,
-        TestImageDir = testImageDir,
     };
 
     /// <summary>Parses a comma-separated list of doubles (e.g. "0,3"), the
-    /// format Controller.LoopPositionsMetres/SimulatedSegmentSeconds are
-    /// stored in -- falls back to `fallback` if the column is empty so a
-    /// blank/unmigrated row still gets a working default.</summary>
-    private static List<double> ParseDoubles(string csv, List<double> fallback)
+    /// format Controller.LoopPositionsMetres is stored in. An empty column
+    /// gives an empty list (no made-up default) -- LaneInterlockFactory
+    /// then refuses to start the lane with a clear error.</summary>
+    private static List<double> ParseDoubles(string csv)
     {
         if (string.IsNullOrWhiteSpace(csv))
         {
-            return fallback;
+            return new List<double>();
         }
         return csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(s => double.Parse(s, System.Globalization.CultureInfo.InvariantCulture))

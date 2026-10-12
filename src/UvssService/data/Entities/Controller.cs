@@ -6,12 +6,12 @@ namespace UvssService.Data.Entities;
 /// can have several.
 ///
 /// Also carries every interlock RUNTIME setting (not just identity) --
-/// Enabled/InterlockSource/LoopPositionsMetres/TcpPort/DebounceMs/
-/// SimulatedIdleSeconds/SimulatedSegmentSeconds used to live duplicated in
+/// Enabled/InterlockSource/LoopPositionsMetres/TcpPort/DebounceMs used to
+/// live duplicated in
 /// appsettings.Lanes.json; that file is gone now, this row is the only
 /// source of truth LaneWorkerHostedService reads at startup (see
 /// LaneRuntimeConfigLoader). These aren't exposed on the Lane Setup form
-/// (they're calibration/simulation knobs an installer wouldn't normally
+/// (they're calibration knobs an installer wouldn't normally
 /// touch, not lane identity) -- edit them directly in the database, or via
 /// a future "Advanced Settings" UI, until/unless that's needed.</summary>
 public class Controller
@@ -29,9 +29,9 @@ public class Controller
     /// start this lane at all.</summary>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>"tcp" for the real on-site interlock; "simulated" for local
-    /// dev/testing.</summary>
-    public string InterlockSource { get; set; } = "simulated";
+    /// <summary>"tcp" -- the real on-site interlock (the only supported
+    /// source; there is no simulated mode).</summary>
+    public string InterlockSource { get; set; } = "tcp";
 
     /// <summary>Comma-separated cumulative distances (metres) of each loop
     /// from the first one, ascending, e.g. "0,3" for this site's real 2-loop
@@ -46,13 +46,4 @@ public class Controller
     /// <summary>Real interlock only -- a loop input must read continuously
     /// "on" this long before counting as a genuine trip.</summary>
     public int DebounceMs { get; set; } = 50;
-
-    /// <summary>Simulated interlock only -- seconds idle before a synthetic
-    /// entry trip.</summary>
-    public double SimulatedIdleSeconds { get; set; } = 20;
-
-    /// <summary>Simulated interlock only -- comma-separated seconds for
-    /// each segment between consecutive loops, e.g. "6.0". Must have one
-    /// entry per gap between loops in LoopPositionsMetres.</summary>
-    public string SimulatedSegmentSeconds { get; set; } = "6.0";
 }

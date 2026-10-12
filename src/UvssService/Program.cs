@@ -293,8 +293,7 @@ if (args.Contains("--test-ocr"))
     return;
 }
 
-// Every lane's camera polling (SimulatedIpCamera/SimulatedAreaScanCamera in
-// video mode included) and every ONNX detector call is a synchronous,
+// Every lane's camera polling (AxisIpCamera/BaslerAreaScanCamera) and every ONNX detector call is a synchronous,
 // CPU/native-blocking call wrapped in an async signature -- there is no real
 // await anywhere in most of these, so each one occupies a real ThreadPool
 // worker thread for its whole duration rather than yielding it. .NET's
@@ -370,7 +369,6 @@ builder.Services.AddSingleton<UvssService.Detection.IFaceDetector>(sp =>
 builder.Services.AddSingleton<UvssService.Streaming.CameraStreamRegistry>();
 builder.Services.AddSingleton<AnprFrameHub>();
 builder.Services.AddSingleton<DriverFrameHub>();
-builder.Services.AddSingleton<UvssService.Cameras.SimulatedVehicleSlotStore>();
 builder.Services.AddSingleton<UvssService.Sensors.LaneInterlockRegistry>();
 builder.Services.AddSingleton<UvssService.Cameras.AreaScanCameraRegistry>();
 builder.Services.AddSingleton<UvssService.Streaming.CameraStatusRegistry>();
@@ -480,6 +478,28 @@ app.MapGet("/stream/{lane}/{camera}", async (string lane, string camera, HttpCon
     {
         // Client navigated away / closed the tab -- expected, not an error.
     }
+});
+
+// Manual ENTRY/EXIT loop trigger (same as the dashboard buttons) -- only
+// exists when LoopSensorDefaults:ManualTriggerEnabled wraps the interlock.
+app.MapPost("/lanes/{lane}/manual/{action}", (string lane, string action, UvssService.Sensors.LaneInterlockRegistry registry) =>
+{
+    if (!registry.TryGet(lane, out var interlock) || interlock is not UvssService.Sensors.ManualTriggerLaneInterlock manual)
+    {
+        return Results.NotFound($"No manual trigger for lane '{lane}'.");
+    }
+    var accepted = action.ToLowerInvariant() switch
+    {
+        "entry" => manual.PressEntry(),
+        "exit" => manual.PressExit(),
+        _ => (bool?)null,
+    };
+    return accepted switch
+    {
+        null => Results.BadRequest("Action must be 'entry' or 'exit'."),
+        true => Results.Ok($"{action} accepted"),
+        false => Results.Conflict($"{action} ignored -- lane is not in the right state"),
+    };
 });
 
 app.Run();

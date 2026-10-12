@@ -56,11 +56,21 @@ public class AreaScanOptions
     /// image resolution, independent of how many rows arrive per camera
     /// grab.</summary>
     public int ReferenceRowsPerMetre { get; set; } = 500;
+
+    /// <summary>Debugging aid: when set, every live-preview update of a pass
+    /// is also written as a numbered JPEG under
+    /// DebugPreviewDir/&lt;lane&gt;_&lt;pass time&gt;/, so the progressive image can
+    /// be reviewed afterwards. Empty (the default) = off.</summary>
+    public string DebugPreviewDir { get; set; } = "";
 }
 
 public class LoopSensorDefaultsOptions
 {
     public double MaxPassSeconds { get; set; } = 30;
+
+    /// <summary>Shows ENTRY/EXIT buttons on the dashboard that trip the
+    /// entry/exit loops by hand (see ManualTriggerLaneInterlock).</summary>
+    public bool ManualTriggerEnabled { get; set; }
 }
 
 public class FaceDetectorOptions
@@ -107,13 +117,6 @@ public class ForeignObjectDetectorOptions
     /// re-tune this threshold using ComputeAnomalyScores against your own
     /// clean/dirty examples before trusting it in production.</summary>
     public float PatchCoreAnomalyThreshold { get; set; } = 3.0f;
-
-    // TEST-ONLY: forces every other pass to come back with one fake
-    // detection, regardless of Method above -- lets the highlighted
-    // dual-scan panel, Scan History's Threat/Denied rows, and the
-    // Analytics threat count all be exercised end-to-end without a real
-    // model. Leave false for anything resembling production.
-    public bool SimulateForTesting { get; set; } = false;
 }
 
 public class PlateDetectorOptions

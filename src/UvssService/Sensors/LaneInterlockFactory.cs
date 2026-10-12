@@ -6,18 +6,21 @@ public static class LaneInterlockFactory
 {
     public static ILaneInterlock Create(string laneName, InterlockOptions options)
     {
-        var positions = options.LoopPositionsMetres.Count >= 2
-            ? options.LoopPositionsMetres
-            : new List<double> { 0.0, 3.0 };
+        // Speed is measured from the real loop spacing -- no made-up default
+        // distance if the configured positions are missing.
+        if (options.LoopPositionsMetres.Count < 2)
+        {
+            throw new InvalidOperationException(
+                $"[{laneName}] LoopPositionsMetres needs at least 2 loop positions (entry and exit), got {options.LoopPositionsMetres.Count}.");
+        }
+        var positions = options.LoopPositionsMetres;
 
-        var segmentSeconds = options.SimulatedSegmentSeconds.Count == positions.Count - 1
-            ? options.SimulatedSegmentSeconds
-            : Enumerable.Repeat(1.0, positions.Count - 1).ToList();
-
+        // Real hardware only -- a mistyped Source fails loudly at startup.
         return options.Source.Trim().ToLowerInvariant() switch
         {
             "tcp" => new TcpLaneInterlock(laneName, positions, options.ControllerIp, options.TcpPort, options.DebounceMs),
-            _ => new SimulatedLaneInterlock(laneName, positions, options.SimulatedIdleSeconds, segmentSeconds),
+            _ => throw new InvalidOperationException(
+                $"[{laneName}] Unsupported InterlockSource '{options.Source}' -- only \"tcp\" (real loop controller) is allowed."),
         };
     }
 

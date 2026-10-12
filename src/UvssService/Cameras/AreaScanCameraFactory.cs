@@ -4,14 +4,14 @@ namespace UvssService.Cameras;
 
 public static class AreaScanCameraFactory
 {
-    public static IAreaScanCamera Create(
-        BaslerCameraOptions options, int frameWidthPx, int frameHeightPx, SimulatedVehicleSlot vehicleSlot)
+    public static IAreaScanCamera Create(BaslerCameraOptions options)
     {
+        // Real hardware only -- a mistyped Source fails loudly at startup.
         return options.Source.Trim().ToLowerInvariant() switch
         {
             "pylon" => new BaslerAreaScanCamera(options.DeviceSerial),
-            _ => new SimulatedAreaScanCamera(
-                options.TestImagePath, frameWidthPx, frameHeightPx, vehicleSlot, options.SimulatedFramesPerSecond),
+            _ => throw new InvalidOperationException(
+                $"Unsupported UVSS camera Source '{options.Source}' -- only \"pylon\" (real Basler camera) is allowed."),
         };
     }
 }

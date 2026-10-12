@@ -39,13 +39,11 @@ public class LaneWorkerHostedService : BackgroundService
     private readonly FaceDetectorOptions _faceDetectorOptions;
     private readonly AnprFrameHub _anprFrameHub;
     private readonly DriverFrameHub _driverFrameHub;
-    private readonly UvssService.Cameras.SimulatedVehicleSlotStore _vehicleSlotStore;
     private readonly IDbContextFactory<UvssDbContext> _dbFactory;
     private readonly ScanEventNotifier _scanEventNotifier;
     private readonly VehicleRegistryStore _vehicleRegistry;
     private readonly UvssService.Sensors.LaneInterlockRegistry _interlockRegistry;
     private readonly UvssService.Cameras.AreaScanCameraRegistry _areaScanCameraRegistry;
-    private int _simulatedPassCount;
 
     /// <summary>How long after auto-opening the barrier for an Approved
     /// vehicle before this side treats it as closed again in LaneState (for
@@ -70,7 +68,6 @@ public class LaneWorkerHostedService : BackgroundService
         IFaceDetector faceDetector,
         AnprFrameHub anprFrameHub,
         DriverFrameHub driverFrameHub,
-        UvssService.Cameras.SimulatedVehicleSlotStore vehicleSlotStore,
         IDbContextFactory<UvssDbContext> dbFactory,
         ScanEventNotifier scanEventNotifier,
         VehicleRegistryStore vehicleRegistry,
@@ -92,7 +89,6 @@ public class LaneWorkerHostedService : BackgroundService
         _faceDetector = faceDetector;
         _anprFrameHub = anprFrameHub;
         _driverFrameHub = driverFrameHub;
-        _vehicleSlotStore = vehicleSlotStore;
         _dbFactory = dbFactory;
         _scanEventNotifier = scanEventNotifier;
         _vehicleRegistry = vehicleRegistry;
@@ -170,15 +166,17 @@ public class LaneWorkerHostedService : BackgroundService
     private LaneRuntime BuildRuntime(LaneOptions lane, IForeignObjectDetector detector)
     {
         var interlock = LaneInterlockFactory.Create(lane.Name, lane.Interlock);
+        if (_loopDefaults.ManualTriggerEnabled)
+        {
+            interlock = new ManualTriggerLaneInterlock(interlock);
+        }
         // So the Lane Setup page's "Test Barrier Relay" button can reach
         // this exact running instance by lane name (see
         // LaneInterlockRegistry's own remarks) -- registered as soon as
         // it's built, before this lane's first pass ever runs.
         _interlockRegistry.Register(lane.Name, interlock);
 
-        var areaScanCamera = AreaScanCameraFactory.Create(
-            lane.BaslerCamera, _areaScan.FrameWidthPx, lane.BaslerCamera.SimulatedFrameHeightPx,
-            _vehicleSlotStore.GetOrCreate(lane.Name));
+        var areaScanCamera = AreaScanCameraFactory.Create(lane.BaslerCamera);
         // So Lane Setup's UVSS Camera Status column can read .Available by
         // lane name (see AreaScanCameraRegistry's own remarks).
         _areaScanCameraRegistry.Register(lane.Name, areaScanCamera);
@@ -189,19 +187,11 @@ public class LaneWorkerHostedService : BackgroundService
             State = _stateStore.GetOrCreate(lane.Name),
             Interlock = interlock,
             AreaScanCamera = areaScanCamera,
-            // CorrelationResampler's software-side de-duplication corrects
-            // for a real camera free-running at a fixed frame rate (see its
-            // own remarks) -- there's no hardware encoder at this site, so
-            // this always runs for a real ("pylon") camera. Simulated
-            // cameras slice a static test image at a perfectly constant
-            // simulated rate -- there's no genuine speed variation to
-            // correct, so this stays off for those (see the DEMO NOTE this
-            // replaces).
-            UseCorrelationResampling = lane.BaslerCamera.Source.Trim().Equals("pylon", StringComparison.OrdinalIgnoreCase),
             Detector = detector,
             MaxPassSeconds = _loopDefaults.MaxPassSeconds,
             MaxFramesPerPass = _areaScan.MaxFramesPerPass,
             ReferenceRowsPerMetre = _areaScan.ReferenceRowsPerMetre,
+            DebugPreviewDir = string.IsNullOrWhiteSpace(_areaScan.DebugPreviewDir) ? "" : ResolvePath(_areaScan.DebugPreviewDir),
             StorageEnabled = _storage.Enabled,
             DriverImageDir = ResolvePath(_storage.DriverImageDir),
             AnprImageDir = ResolvePath(_storage.AnprImageDir),
@@ -247,16 +237,6 @@ public class LaneWorkerHostedService : BackgroundService
         }
         Console.WriteLine($"[{lane.Name}] loop 0 tripped -- vehicle entering.");
         lane.State.SetStatus("Active");
-
-        // Advance to a fresh simulated vehicle for this pass (see
-        // SimulatedVehicleSlot's own remarks for why this replaced a
-        // wall-clock timer) and give the driver/ANPR/overview cameras' own
-        // poll loops (StreamIntervalMs, default 150ms) a brief moment to
-        // actually pick up the new slot before freezing a snapshot of it --
-        // otherwise the very first read below could still catch one last
-        // stale poll of the PREVIOUS vehicle.
-        _vehicleSlotStore.GetOrCreate(lane.Name).Advance();
-        await Task.Delay(300, ct);
 
         // Freeze the ANPR/overview cameras' frames right now, at
         // vehicle-entry, rather than reading lane.State.*FrameJpeg again
@@ -312,10 +292,7 @@ public class LaneWorkerHostedService : BackgroundService
             lane.State.SetStatus("Idle");
             plateTrack.Reset();
             driverTrack.Reset();
-            foreach (var frame in capture.Frames)
-            {
-                frame.Dispose();
-            }
+            capture.Mosaic.Dispose();
             return;
         }
 
@@ -355,15 +332,7 @@ public class LaneWorkerHostedService : BackgroundService
         {
             plateTrack.Reset();
             driverTrack.Reset();
-            // Every individual grabbed frame (capture.Frames) was consumed by
-            // FrameStitcher.Stitch inside FinalizePass via VConcat (which
-            // always copies into a new Mat, never takes ownership) -- these
-            // were the single largest leak found in this pass, since a long
-            // pass can capture well over a hundred of these Mats.
-            foreach (var frame in capture.Frames)
-            {
-                frame.Dispose();
-            }
+            capture.Mosaic.Dispose();
         }
     }
 
@@ -375,47 +344,42 @@ public class LaneWorkerHostedService : BackgroundService
     /// anyone watching to react to something suspicious).</summary>
     private static readonly TimeSpan LiveStitchUpdateInterval = TimeSpan.FromMilliseconds(150);
 
-    /// <summary>Result of one capture pass: every grabbed frame, the ENGAGE
-    /// trip time of every loop (index 0 = entry), which frame index had just
-    /// been captured when each loop engaged -- `FrameIndexAtLoop[i]` to
-    /// `FrameIndexAtLoop[i+1]` is exactly the segment of frames captured
-    /// between loop i engaging and loop i+1 engaging, which FinalizePass
-    /// rescales using that segment's own measured speed -- and when the
-    /// EXIT loop (the last one) actually cleared (went back to disengaged).
-    /// `Frames` keeps growing past `FrameIndexAtLoop[^1]` all the way to
-    /// ExitClearTime -- see CapturePassAsync's own remarks for why: that
-    /// tail is exactly the part of a vehicle longer than the entry-exit loop
-    /// spacing that hadn't finished passing under the camera yet when the
-    /// exit loop first engaged.
+    /// <summary>Result of one capture pass: the under-vehicle mosaic built
+    /// from every grabbed frame (see FrameMosaic), the ENGAGE trip time of
+    /// every loop (index 0 = entry), and when the EXIT loop (the last one)
+    /// actually cleared (went back to disengaged) -- capture keeps going past
+    /// the exit loop engaging until it clears, so a vehicle longer than the
+    /// loop spacing still gets its whole underside scanned.
     ///
     /// LoopTimes.Count tells you how far a pass got before a fault:
     /// still just [entryTime] means the exit loop never engaged at all;
     /// 2 entries with Completed==false means it engaged but never cleared
     /// (ExitClearTime stays null) -- two different fault stories, logged
     /// differently by RunOnePassAsync.</summary>
-    private record CaptureResult(List<Mat> Frames, List<DateTime> LoopTimes, List<int> FrameIndexAtLoop, DateTime? ExitClearTime, bool Completed);
+    private record CaptureResult(FrameMosaic Mosaic, List<DateTime> LoopTimes, DateTime? ExitClearTime, bool Completed);
 
     private static async Task<CaptureResult> CapturePassAsync(LaneRuntime lane, DateTime entryTime, CancellationToken ct)
     {
         lane.AreaScanCamera.Start();
-        var frames = new List<Mat>();
-        var pendingFrames = new List<Mat>();
+        var mosaic = new FrameMosaic();
+        var mosaicChanged = false;
         var loopTimes = new List<DateTime> { entryTime };
-        var frameIndexAtLoop = new List<int> { 0 };
-        Mat? liveStitch = null;
         var lastUiUpdate = DateTime.UtcNow;
+        string? debugDir = null;
+        if (lane.DebugPreviewDir != "")
+        {
+            debugDir = Path.Combine(lane.DebugPreviewDir, $"{lane.Name}_{DateTime.Now:yyyyMMdd_HHmmss}");
+            Directory.CreateDirectory(debugDir);
+            Console.WriteLine($"[{lane.Name}] recording live previews to {debugDir}");
+        }
+        var debugIndex = 0;
         var totalLoops = lane.Interlock.LoopPositionsMetres.Count;
         var exitLoopIndex = totalLoops - 1;
         var currentLoopIndex = 0;
-        // Once the exit loop ENGAGES (currentLoopIndex reaches exitLoopIndex),
-        // capture does NOT stop there -- a vehicle longer than the physical
-        // entry-exit loop spacing (which is every ordinary vehicle at a
-        // typical few-metre spacing, let alone a bus/truck) still has most
-        // of its underside yet to pass under the camera at that instant.
-        // Instead this switches to polling IsLoopEngagedAsync for the exit
-        // loop going back to disengaged (the vehicle's REAR has now cleared
-        // it too) -- only THEN is the whole vehicle guaranteed to have
-        // passed under the camera, regardless of how long it is.
+        // Once the exit loop ENGAGES, capture does NOT stop there -- a
+        // vehicle longer than the entry-exit loop spacing still has part of
+        // its underside to pass over the camera. Capture continues until the
+        // exit loop goes back to disengaged (the vehicle's rear has cleared).
         var exitEngaged = false;
         DateTime? exitClearTime = null;
         var completed = false;
@@ -425,23 +389,23 @@ public class LaneWorkerHostedService : BackgroundService
             while (!ct.IsCancellationRequested)
             {
                 var elapsed = (DateTime.UtcNow - entryTime).TotalSeconds;
-                if (elapsed >= lane.MaxPassSeconds || frames.Count >= lane.MaxFramesPerPass)
+                if (elapsed >= lane.MaxPassSeconds || mosaic.FrameCount >= lane.MaxFramesPerPass)
                 {
                     break;
                 }
 
-                var frame = lane.AreaScanCamera.GrabFrame(200);
-                if (frame != null)
+                using (var frame = lane.AreaScanCamera.GrabFrame(200))
                 {
-                    frames.Add(frame);
-                    pendingFrames.Add(frame);
+                    if (frame != null && mosaic.Add(frame))
+                    {
+                        mosaicChanged = true;
+                    }
                 }
 
-                if (pendingFrames.Count > 0 && DateTime.UtcNow - lastUiUpdate >= LiveStitchUpdateInterval)
+                if (mosaicChanged && DateTime.UtcNow - lastUiUpdate >= LiveStitchUpdateInterval)
                 {
-                    liveStitch = AppendFramesDisposingOld(liveStitch, pendingFrames);
-                    pendingFrames.Clear();
-                    lane.State.SetUnderVehicleImage(EncodeUnderVehicleJpeg(liveStitch));
+                    PublishLiveMosaic(lane, mosaic, debugDir, ref debugIndex);
+                    mosaicChanged = false;
                     lastUiUpdate = DateTime.UtcNow;
                 }
 
@@ -452,8 +416,7 @@ public class LaneWorkerHostedService : BackgroundService
                     {
                         currentLoopIndex++;
                         loopTimes.Add(nextLoopTime.Value);
-                        frameIndexAtLoop.Add(frames.Count);
-                        Console.WriteLine($"[{lane.Name}] loop {currentLoopIndex} engaged -- {frames.Count} frames so far.");
+                        Console.WriteLine($"[{lane.Name}] loop {currentLoopIndex} engaged -- {mosaic.FrameCount} frames so far.");
                         if (currentLoopIndex == exitLoopIndex)
                         {
                             exitEngaged = true;
@@ -464,124 +427,54 @@ public class LaneWorkerHostedService : BackgroundService
                 {
                     exitClearTime = DateTime.UtcNow;
                     completed = true;
-                    Console.WriteLine($"[{lane.Name}] exit loop cleared -- {frames.Count} frames total, vehicle fully passed.");
+                    Console.WriteLine($"[{lane.Name}] exit loop cleared -- {mosaic.FrameCount} frames total, vehicle fully passed.");
                     break;
                 }
             }
 
-            // Flush whatever's left unpublished so the live view is caught up
-            // to the very last grabbed frame before FinalizePass takes
-            // over with the properly speed-rescaled version.
-            if (pendingFrames.Count > 0)
+            // Catch the live view up to the very last grabbed frame.
+            if (mosaicChanged)
             {
-                liveStitch = AppendFramesDisposingOld(liveStitch, pendingFrames);
-                lane.State.SetUnderVehicleImage(EncodeUnderVehicleJpeg(liveStitch));
+                PublishLiveMosaic(lane, mosaic, debugDir, ref debugIndex);
             }
         }
         finally
         {
             lane.AreaScanCamera.Stop();
-            // The last liveStitch built here was only ever used to encode a
-            // JPEG for the live preview -- FinalizePass re-stitches
-            // from capture.Frames independently (with proper speed
-            // rescaling), so this copy is never read again and would
-            // otherwise leak.
-            liveStitch?.Dispose();
         }
-        return new CaptureResult(frames, loopTimes, frameIndexAtLoop, exitClearTime, completed);
+        return new CaptureResult(mosaic, loopTimes, exitClearTime, completed);
     }
 
-    /// <summary>AppendFrames always returns a brand-new Mat (VConcat never
-    /// writes in place) -- called on every live-preview tick (every 150ms
-    /// during an Active pass), so without disposing the Mat it's replacing,
-    /// this leaked one growing-sized native buffer per tick, the single
-    /// biggest source of the multi-GB/hour memory leak this was fixed
-    /// for.</summary>
-    private static Mat? AppendFramesDisposingOld(Mat? existing, List<Mat> newFrames)
+    /// <summary>The live view only shows the newest end of the scan (older
+    /// rows scroll off the left), so only that much is re-encoded, at half
+    /// resolution -- this runs on the grab loop and must stay cheap.</summary>
+    private const int LivePreviewMaxRows = 4000;
+
+    private static void PublishLiveMosaic(LaneRuntime lane, FrameMosaic mosaic, string? debugDir, ref int debugIndex)
     {
-        var appended = AppendFrames(existing, newFrames);
-        if (existing != null && !ReferenceEquals(existing, appended))
+        using var live = mosaic.BuildRecent(LivePreviewMaxRows);
+        if (live == null)
         {
-            existing.Dispose();
+            return;
         }
-        return appended;
+        // Explicit size, never below 1 row: a slow scene can leave a newest
+        // strip only 1 row tall, which a plain 0.5 scale rounds to 0 rows
+        // and OpenCV rejects ("!dsize.empty()"), killing the whole pass.
+        using var half = new Mat();
+        Cv2.Resize(live, half, new Size(Math.Max(1, live.Cols / 2), Math.Max(1, live.Rows / 2)), interpolation: InterpolationFlags.Area);
+        var jpeg = EncodeUnderVehicleJpeg(half, mosaic.NewestAtTop);
+        lane.State.SetUnderVehicleImage(jpeg);
+        if (debugDir != null && jpeg != null)
+        {
+            File.WriteAllBytes(Path.Combine(debugDir, $"{debugIndex++:D4}_{mosaic.FrameCount}f_{mosaic.MosaicRows}r.jpg"), jpeg);
+        }
     }
 
-    /// <summary>Appends `newFrames` onto the already-stitched `existing`
-    /// image (or just stitches `newFrames` if this is the first batch) --
-    /// grows the live preview incrementally rather than re-stitching every
-    /// frame captured so far on every UI update tick.</summary>
-    private static Mat? AppendFrames(Mat? existing, List<Mat> newFrames)
-    {
-        var toConcat = new List<Mat>();
-        if (existing != null)
-        {
-            toConcat.Add(existing);
-        }
-        toConcat.AddRange(newFrames.Where(frame => frame != null && !frame.Empty()));
-        if (toConcat.Count == 0)
-        {
-            return existing;
-        }
-        var merged = new Mat();
-        Cv2.VConcat(toConcat.ToArray(), merged);
-        return merged;
-    }
-
-    /// <summary>CorrelationResampler's own defaults (chunkHeight=2,
-    /// templateHeight=1) were tuned for a true line-scan sensor, where every
-    /// grab is a single pixel row -- an area-scan camera grabs whole
-    /// FrameHeightPx-tall frames instead, and empirically (see
-    /// AreaScanSpeedSweepTest's --test-area-scan-tune/-confidence sweeps)
-    /// those line-scan-shaped defaults are not just suboptimal but badly
-    /// wrong here: 100-600%+ reconstruction error across realistic
-    /// constant/variable-speed profiles, because the resampler's internal
-    /// chunking has to align with the ACTUAL per-grab frame size to find
-    /// genuine frame-to-frame overlap at all. The sweep found a chunk size
-    /// tied to the source frames' own actual height reduces worst-case
-    /// error to single digits: chunkHeight = the frames' own height (so
-    /// each correlation step evaluates one real camera grab at a time), and
-    /// templateHeight = a quarter of that -- a template much LARGER than
-    /// that (e.g. half, tried first) fails silently as vehicle speed rises,
-    /// because real frame-to-frame overlap shrinks with speed and a
-    /// too-large template stops existing anywhere in the new frame well
-    /// before the camera's hard gap-free ceiling is reached. minConfidence
-    /// is relaxed slightly from the line-scan default (0.95 -> 0.85) since
-    /// the sweep found it stops being the sensitive parameter once the
-    /// chunk/template sizes are actually right, and a hair more tolerance
-    /// helps against real (noisier) footage than clean synthetic test
-    /// texture.</summary>
-    private static Mat ResampleAreaScanFrames(Mat stitched, IReadOnlyList<Mat> sourceFrames)
-    {
-        var usableFrames = sourceFrames.Where(frame => frame != null && !frame.Empty()).ToList();
-        if (usableFrames.Count == 0)
-        {
-            return stitched;
-        }
-        // The largest observed grab height is the camera's real per-grab
-        // frame size -- a shorter one can only be a truncated remainder
-        // (e.g. the simulated camera running out of test image), never the
-        // camera's actual configured frame height.
-        var frameHeightPx = usableFrames.Max(frame => frame.Rows);
-        var chunkHeight = Math.Max(2, frameHeightPx);
-        var templateHeight = Math.Clamp(chunkHeight / 4, 1, chunkHeight - 1);
-        return CorrelationResampler.ResampleBySelfCorrelation(stitched, chunkHeight, templateHeight, minConfidence: 0.85);
-    }
-
-    /// <summary>Two corrections stack per loop-to-loop segment, each fixing
-    /// a different thing:
-    ///
-    /// 1. CorrelationResampler -- de-duplicates the raw capture using the
-    ///    image content itself (see its remarks), fixing the internal
-    ///    stretching/streaking a vehicle that sped up, slowed down, or
-    ///    briefly stopped *within* this segment would otherwise leave
-    ///    behind. Needs zero external timing/distance info.
-    /// 2. FrameStitcher.NormalizeHeight -- the de-duplicated image is
-    ///    correctly *shaped* but not yet at a known physical scale; this
-    ///    calibrates it to real-world rows-per-metre using the segment's
-    ///    loop-measured distance and average speed, since no amount of
-    ///    image correlation alone can tell you the absolute scale (only the
-    ///    loops -- a known physical distance -- can).</summary>
+    /// <summary>The mosaic built during capture is already de-duplicated by
+    /// image registration (see FrameMosaic) and keeps the camera's own
+    /// pixel geometry, so it is used as the final image as-is -- the loops
+    /// only contribute the average speed (loop spacing / entry-to-exit
+    /// time).</summary>
     private async Task FinalizePass(
         LaneRuntime lane, CaptureResult capture, PlateTrack plateTrack, DriverTrack driverTrack,
         byte[]? passDriverJpeg, byte[]? passAnprJpeg, byte[]? passOverviewJpeg)
@@ -596,131 +489,51 @@ public class LaneWorkerHostedService : BackgroundService
             passDriverJpeg = bestDriverJpeg;
         }
 
-        var positions = lane.Interlock.LoopPositionsMetres;
-        var segmentImages = new List<Mat>();
-        var segmentSpeeds = new List<double>();
-
-        for (var i = 0; i < positions.Count - 1; i++)
-        {
-            var segmentFrames = capture.Frames.GetRange(
-                capture.FrameIndexAtLoop[i], capture.FrameIndexAtLoop[i + 1] - capture.FrameIndexAtLoop[i]);
-            var segmentDistance = positions[i + 1] - positions[i];
-            var segmentSpeed = LaneInterlockFactory.EstimateSpeedMetresPerSecond(
-                segmentDistance, capture.LoopTimes[i], capture.LoopTimes[i + 1]);
-            segmentSpeeds.Add(segmentSpeed);
-
-            var segmentStitched = FrameStitcher.Stitch(segmentFrames);
-            if (segmentStitched != null)
-            {
-                // Simulated cameras slice a real photo at a perfectly
-                // constant simulated rate -- there's no genuine speed
-                // variation for CorrelationResampler to correct, so it has
-                // nothing real to find and would corrupt otherwise-clean
-                // content (confirmed via isolated before/after
-                // diagnostics). Only applied for a real ("pylon") camera --
-                // see LaneRuntime.UseCorrelationResampling in BuildRuntime.
-                var deduplicated = lane.UseCorrelationResampling
-                    ? ResampleAreaScanFrames(segmentStitched, segmentFrames)
-                    : segmentStitched;
-                var normalized = FrameStitcher.NormalizeHeight(deduplicated, segmentDistance, lane.ReferenceRowsPerMetre);
-                if (!ReferenceEquals(normalized, segmentStitched))
-                {
-                    segmentStitched.Dispose();
-                }
-                if (!ReferenceEquals(deduplicated, segmentStitched) && !ReferenceEquals(deduplicated, normalized))
-                {
-                    deduplicated.Dispose();
-                }
-                segmentImages.Add(normalized);
-            }
-        }
-
-        // Tail: everything captured AFTER the exit loop engaged, up until it
-        // actually cleared -- exactly the part of a vehicle longer than the
-        // entry-exit loop spacing that hadn't finished passing under the
-        // camera yet when the exit loop first engaged (see CapturePassAsync's
-        // and CaptureResult's own remarks -- this is what makes a bus/truck
-        // longer than the loop spacing still get fully scanned instead of
-        // being cut off). No loop independently measures this segment's own
-        // speed (only entry-to-exit-engage is measured) -- the best
-        // available estimate is the last measured segment's speed, assumed
-        // roughly constant for this short remainder of the pass.
-        var tailFrames = capture.Frames.GetRange(
-            capture.FrameIndexAtLoop[^1], capture.Frames.Count - capture.FrameIndexAtLoop[^1]);
-        var tailEndTime = capture.ExitClearTime ?? capture.LoopTimes[^1];
-        var tailDuration = (tailEndTime - capture.LoopTimes[^1]).TotalSeconds;
-        var tailSpeed = segmentSpeeds.Count > 0 ? segmentSpeeds[^1] : 0.0;
-        var tailDistance = Math.Max(0.0, tailSpeed * tailDuration);
-
-        if (tailFrames.Count > 0 && tailDistance > 0)
-        {
-            var tailStitched = FrameStitcher.Stitch(tailFrames);
-            if (tailStitched != null)
-            {
-                var tailDeduplicated = lane.UseCorrelationResampling
-                    ? ResampleAreaScanFrames(tailStitched, tailFrames)
-                    : tailStitched;
-                var tailNormalized = FrameStitcher.NormalizeHeight(tailDeduplicated, tailDistance, lane.ReferenceRowsPerMetre);
-                if (!ReferenceEquals(tailNormalized, tailStitched))
-                {
-                    tailStitched.Dispose();
-                }
-                if (!ReferenceEquals(tailDeduplicated, tailStitched) && !ReferenceEquals(tailDeduplicated, tailNormalized))
-                {
-                    tailDeduplicated.Dispose();
-                }
-                segmentImages.Add(tailNormalized);
-            }
-        }
-
-        if (segmentImages.Count == 0)
+        var finalImage = capture.Mosaic.Build();
+        if (finalImage == null)
         {
             Console.WriteLine($"[{lane.Name}] no frames captured this pass -- skipping event.");
             return;
         }
-
-        var finalImage = FrameStitcher.Stitch(segmentImages) ?? segmentImages[0];
-        foreach (var segmentImage in segmentImages)
+        // The camera delivers Mono8; the detector and highlight drawing
+        // expect BGR.
+        if (finalImage.Channels() == 1)
         {
-            if (!ReferenceEquals(segmentImage, finalImage))
-            {
-                segmentImage.Dispose();
-            }
+            var bgr = new Mat();
+            Cv2.CvtColor(finalImage, bgr, ColorConversionCodes.GRAY2BGR);
+            finalImage.Dispose();
+            finalImage = bgr;
         }
-        var totalDistance = positions[^1] - positions[0] + tailDistance;
+        var newestAtTop = capture.Mosaic.NewestAtTop;
+
+        var positions = lane.Interlock.LoopPositionsMetres;
+        var exitTime = capture.LoopTimes[^1];
+        var tailEndTime = capture.ExitClearTime ?? exitTime;
+        var avgSpeed = LaneInterlockFactory.EstimateSpeedMetresPerSecond(positions[^1] - positions[0], capture.LoopTimes[0], exitTime);
         var totalDuration = (tailEndTime - capture.LoopTimes[0]).TotalSeconds;
-        var avgSpeed = LaneInterlockFactory.EstimateSpeedMetresPerSecond(totalDistance, capture.LoopTimes[0], tailEndTime);
 
         Console.WriteLine(
-            $"[{lane.Name}] pass complete -- {capture.Frames.Count} frames across {segmentImages.Count} segment(s) "
-            + $"(incl. {tailFrames.Count}-frame/{tailDistance:F2}m tail past the exit loop), "
-            + $"per-segment speed=[{string.Join(", ", segmentSpeeds.Select(s => s.ToString("F2")))}] m/s, "
+            $"[{lane.Name}] pass complete -- {capture.Mosaic.FrameCount} frames -> {finalImage.Cols}x{finalImage.Rows} mosaic, "
             + $"avg={avgSpeed:F2} m/s, duration={totalDuration:F2}s"
         );
+        var m = capture.Mosaic;
+        Console.WriteLine(
+            $"[{lane.Name}] mosaic stats -- rejected: lowTexture={m.RejectedLowTexture} lowResponse={m.RejectedLowResponse} "
+            + $"noMotion={m.RejectedNoMotion}; motion |dx|={m.TotalAbsDx:F0}px |dy|={m.TotalAbsDy:F0}px; kept {m.MosaicRows} rows"
+        );
 
-        // Reported downstream (LaneState.LastRowCount, the "row_count"
-        // POST field) as the total scan ROWS captured across every grabbed
-        // frame -- a proxy for the scan's resolution/length, independent of
-        // how many camera grabs (frames) it took to capture it.
-        var totalRowsCaptured = capture.Frames.Sum(frame => frame.Rows);
+        // Reported downstream (LaneState.LastRowCount) as the total scan
+        // ROWS grabbed across every frame -- a proxy for how much the camera
+        // captured, independent of how much of it was new.
+        var totalRowsCaptured = (int)Math.Min(int.MaxValue, capture.Mosaic.RowsGrabbed);
 
         var detections = lane.Detector.Available ? lane.Detector.Detect(finalImage) : new List<ForeignObjectDetection>();
-        if (_detectorOptions.SimulateForTesting && detections.Count == 0 && Interlocked.Increment(ref _simulatedPassCount) % 2 == 0)
-        {
-            // TEST-ONLY (see ForeignObjectDetectorOptions.SimulateForTesting):
-            // every other pass gets one fake detection so both the "clean"
-            // and "flagged" dashboard states are reachable without a real
-            // trained model. Roughly centered/mid-height on the scan.
-            detections.Add(new ForeignObjectDetection(
-                "simulated_test_object", 0.9f,
-                new Rect(finalImage.Cols / 4, finalImage.Rows / 3, finalImage.Cols / 2, finalImage.Rows / 6)));
-        }
         if (detections.Count > 0)
         {
             Console.WriteLine($"[{lane.Name}] foreign-object detector flagged {detections.Count} region(s).");
         }
 
-        var underVehicleJpeg = EncodeUnderVehicleJpeg(finalImage);
+        var underVehicleJpeg = EncodeUnderVehicleJpeg(finalImage, newestAtTop);
         lane.State.SetUnderVehicleImage(underVehicleJpeg);
         lane.State.SetPassResult(avgSpeed, totalDuration, totalRowsCaptured, detections, lane.Detector.Available);
         lane.State.SetLastPassFrames(passDriverJpeg, passAnprJpeg, passOverviewJpeg);
@@ -733,7 +546,7 @@ public class LaneWorkerHostedService : BackgroundService
             // same rotate+encode step as the plain scan -- so the two stay
             // pixel-aligned for the dashboard's side-by-side/stacked view.
             using var highlighted = DrawDetectionHighlights(finalImage, detections);
-            highlightedUnderVehicleJpeg = EncodeUnderVehicleJpeg(highlighted);
+            highlightedUnderVehicleJpeg = EncodeUnderVehicleJpeg(highlighted, newestAtTop);
         }
         lane.State.SetHighlightedUnderVehicleImage(highlightedUnderVehicleJpeg);
         finalImage.Dispose();
@@ -924,26 +737,23 @@ public class LaneWorkerHostedService : BackgroundService
     /// with each newly-captured frame extending the image further to the
     /// RIGHT -- clockwise would instead keep the newest frame pinned to the
     /// left and shift the whole vehicle rightward on every update, which
-    /// looks like the image growing backwards.</summary>
-    private static byte[]? EncodeUnderVehicleJpeg(Mat image)
+    /// looks like the image growing backwards. When the mosaic grew at the
+    /// top instead (vehicle travelling the other way over the camera,
+    /// FrameMosaic.NewestAtTop), rotating clockwise keeps that same rule:
+    /// first-seen on the left, newest on the right.</summary>
+    private static byte[]? EncodeUnderVehicleJpeg(Mat image, bool newestAtTop)
     {
         if (image.Empty())
         {
             return null;
         }
         using var rotated = new Mat();
-        Cv2.Rotate(image, rotated, RotateFlags.Rotate90Counterclockwise);
+        Cv2.Rotate(image, rotated, newestAtTop ? RotateFlags.Rotate90Clockwise : RotateFlags.Rotate90Counterclockwise);
 
-        // The live-growing preview (still-in-progress pass, re-encoded
-        // every ~150ms) can reach tens of thousands of pixels wide by the
-        // time a long/fast-camera pass ends -- past a certain size this
-        // started failing JPEG encoding outright ("can't encode data:
-        // unknown exception", seen once frame throughput went up to
-        // 200fps) rather than just being slow. The final, saved scan is
-        // never anywhere near this large -- FinalizePass normalizes to
-        // ~1500 rows before this ever runs -- so downscaling only kicks in
-        // for the oversized live-preview case, with no visible loss for
-        // the archived result.
+        // Guard against oversized images -- past a certain size JPEG
+        // encoding fails outright ("can't encode data: unknown exception").
+        // A mosaic is normally well under this; only a very long, slow
+        // pass reaches it.
         const int maxDimension = 8000;
         var largest = Math.Max(rotated.Cols, rotated.Rows);
         var toEncode = rotated;
@@ -952,7 +762,7 @@ public class LaneWorkerHostedService : BackgroundService
         {
             var scale = maxDimension / (double)largest;
             downscaled = new Mat();
-            Cv2.Resize(rotated, downscaled, new Size((int)(rotated.Cols * scale), (int)(rotated.Rows * scale)));
+            Cv2.Resize(rotated, downscaled, new Size(Math.Max(1, (int)(rotated.Cols * scale)), Math.Max(1, (int)(rotated.Rows * scale))));
             toEncode = downscaled;
         }
         var encoded = Cv2.ImEncode(".jpg", toEncode, out var buffer);
@@ -1004,11 +814,11 @@ public class LaneWorkerHostedService : BackgroundService
         public required LaneState State { get; init; }
         public required ILaneInterlock Interlock { get; init; }
         public required IAreaScanCamera AreaScanCamera { get; init; }
-        public required bool UseCorrelationResampling { get; init; }
         public required IForeignObjectDetector Detector { get; init; }
         public required double MaxPassSeconds { get; init; }
         public required int MaxFramesPerPass { get; init; }
         public required int ReferenceRowsPerMetre { get; init; }
+        public required string DebugPreviewDir { get; init; }
         public required bool StorageEnabled { get; init; }
         public required string DriverImageDir { get; init; }
         public required string AnprImageDir { get; init; }

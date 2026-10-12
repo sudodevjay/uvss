@@ -9,6 +9,7 @@
 @inject IDbContextFactory<UvssDbContext> DbFactory
 @inject ScanEventNotifier ScanEventNotifier
 @inject UvssService.Streaming.CameraStatusRegistry CameraStatusRegistry
+@inject UvssService.Sensors.LaneInterlockRegistry InterlockRegistry
 @implements IDisposable
 
 <PageTitle>UVSS Dashboard</PageTitle>
@@ -58,6 +59,25 @@
                      object-contain so the *whole* finished image is visible
                      regardless of vehicle length. -->
                 <div class="col-start-1 col-end-4 row-start-1 relative min-w-0 min-h-0 overflow-hidden bg-[#e2e2e2] @heroBoxClasses">
+                    @if (view.IsLive && GetManualTrigger(lane.LaneName) is { } manualTrigger)
+                    {
+                        var isActive = lane.Status == "Active";
+                        <!-- Manual loop trigger (LoopSensorDefaults:ManualTriggerEnabled):
+                             ENTRY starts a real scan pass, EXIT ends it. -->
+                        <div class="absolute top-1.5 left-1.5 z-20 flex items-center gap-1.5 bg-white/85 border border-[#bbb] rounded px-2 py-1 text-xs">
+                            <span class="font-bold @(isActive ? "text-[#c23b1f]" : "text-[#555]")">@(isActive ? "● SCANNING" : "IDLE")</span>
+                            <button type="button" disabled="@isActive"
+                                    class="px-3 py-1 rounded font-bold text-white @(isActive ? "bg-[#9bbf9b] cursor-not-allowed" : "bg-[#2c7a2c] hover:bg-[#23632a] cursor-pointer")"
+                                    @onclick="() => PressManual(lane.LaneName, manualTrigger, entry: true)">ENTRY</button>
+                            <button type="button" disabled="@(!isActive)"
+                                    class="px-3 py-1 rounded font-bold text-white @(!isActive ? "bg-[#d9a9a0] cursor-not-allowed" : "bg-[#c23b1f] hover:bg-[#a33119] cursor-pointer")"
+                                    @onclick="() => PressManual(lane.LaneName, manualTrigger, entry: false)">EXIT</button>
+                            @if (_manualMessage.TryGetValue(lane.LaneName, out var manualMsg))
+                            {
+                                <span class="text-[#b0700a]">@manualMsg</span>
+                            }
+                        </div>
+                    }
                     @if (!view.IsLive)
                     {
                         <div class="absolute top-1.5 left-1.5 z-10 bg-[#b0700a] text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-2">
@@ -540,6 +560,24 @@
             PlateStateName: lane.PlateStateName,
             PlateTextValid: lane.PlateTextValid,
             PlateOcrAvailable: lane.PlateOcrAvailable);
+    }
+
+    private readonly Dictionary<string, string> _manualMessage = new();
+
+    private UvssService.Sensors.ManualTriggerLaneInterlock? GetManualTrigger(string laneName) =>
+        InterlockRegistry.TryGet(laneName, out var interlock) ? interlock as UvssService.Sensors.ManualTriggerLaneInterlock : null;
+
+    private void PressManual(string laneName, UvssService.Sensors.ManualTriggerLaneInterlock trigger, bool entry)
+    {
+        var accepted = entry ? trigger.PressEntry() : trigger.PressExit();
+        if (accepted)
+        {
+            _manualMessage.Remove(laneName);
+        }
+        else
+        {
+            _manualMessage[laneName] = entry ? "previous pass still finishing -- try again" : "no pass in progress";
+        }
     }
 
     private void SelectEntry(string laneName, long entryId)

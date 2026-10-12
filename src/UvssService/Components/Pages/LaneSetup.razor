@@ -48,13 +48,12 @@
                 <tbody>
                     @foreach (var c in _controllers)
                     {
-                        var isSimulated = string.Equals(c.InterlockSource, "simulated", StringComparison.OrdinalIgnoreCase);
                         var online = IsControllerOnline(c.LaneId);
                         <tr class="border-b border-[#eee] hover:bg-[#fafafa]">
                             <td class="p-3 font-bold text-[#1a5fb4]">@c.LaneId</td>
                             <td class="p-3">@c.GateName</td>
                             <td class="p-3">@c.Ip</td>
-                            <td class="p-3">@StatusBadge(isSimulated, online)</td>
+                            <td class="p-3">@StatusBadge(online)</td>
                             <td class="p-3">
                                 <button class="bg-[#fdf1d8] text-[#b0700a] px-3 py-1 rounded text-xs font-semibold cursor-pointer" @onclick="() => TestRelay(c.LaneId)">Test Barrier Relay</button>
                             </td>
@@ -290,27 +289,15 @@
     </button>;
 
     /// <summary>Shared Status-column badge for Controllers/Driver/ANPR/UVSS
-    /// cameras -- a grey "Simulated" badge when this row's Source/
-    /// InterlockSource is "simulated" (there is deliberately no real
-    /// online/offline concept for a row with no real hardware behind it, so
-    /// this is never conflated with a real green/red reading), else a real
-    /// green "Online" / red "Offline" reading from whichever registry the
-    /// caller already resolved into `online`.</summary>
-    private RenderFragment StatusBadge(bool isSimulated, bool online) => @<span class="inline-flex items-center gap-1.5">
-        @if (isSimulated)
-        {
-            <span class="w-2.5 h-2.5 rounded-full inline-block bg-[#888]"></span>
-            <span class="text-xs font-semibold text-[#666]">Simulated</span>
-        }
-        else
-        {
-            <span class="w-2.5 h-2.5 rounded-full inline-block @(online ? "bg-[#2c7a2c]" : "bg-[#c23b1f]")"></span>
-            <span class="text-xs font-semibold @(online ? "text-[#2c7a2c]" : "text-[#c23b1f]")">@(online ? "Online" : "Offline")</span>
-        }
+    /// cameras -- a green "Online" / red "Offline" reading from whichever
+    /// registry the caller already resolved into `online`.</summary>
+    private RenderFragment StatusBadge(bool online) => @<span class="inline-flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full inline-block @(online ? "bg-[#2c7a2c]" : "bg-[#c23b1f]")"></span>
+        <span class="text-xs font-semibold @(online ? "text-[#2c7a2c]" : "text-[#c23b1f]")">@(online ? "Online" : "Offline")</span>
     </span>;
 
     private RenderFragment IpCameraStatusBadge(string laneId, string cameraLabel, string source) =>
-        StatusBadge(string.Equals(source, "simulated", StringComparison.OrdinalIgnoreCase), CameraStatusRegistry.IsOnline(laneId, cameraLabel));
+        StatusBadge(CameraStatusRegistry.IsOnline(laneId, cameraLabel));
 
     /// <summary>Unlike the IP cameras (continuously streamed, so a recent
     /// frame timestamp means "online"), the UVSS/Basler camera is only ever
@@ -321,7 +308,7 @@
     /// "no matching camera was found on the network", not "went quiet
     /// recently".</summary>
     private RenderFragment UvssCameraStatusBadge(string laneId, string source) =>
-        StatusBadge(string.Equals(source, "simulated", StringComparison.OrdinalIgnoreCase), IsUvssCameraOnline(laneId));
+        StatusBadge(IsUvssCameraOnline(laneId));
 
     private bool IsUvssCameraOnline(string laneId) =>
         AreaScanCameraRegistry.TryGet(laneId, out var camera) && camera != null && camera.Available;

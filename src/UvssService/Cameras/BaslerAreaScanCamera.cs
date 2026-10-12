@@ -23,27 +23,125 @@ namespace UvssService.Cameras;
 /// slows down, or briefly stops mid-pass.</summary>
 public class BaslerAreaScanCamera : IAreaScanCamera
 {
-    private readonly Camera? _camera;
+    /// <summary>How often the watchdog checks the camera is still there, and
+    /// retries opening it when it isn't.</summary>
+    private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(5);
 
+    private readonly string _deviceSerial;
+    // Every touch of _camera goes through this lock -- the watchdog timer
+    // may dispose/replace it while the lane worker is mid-GrabFrame.
+    private readonly object _sync = new();
+    private readonly Timer _watchdog;
+    private Camera? _camera;
+    private bool _grabbing;
+    private bool _reportedDisconnect;
+
+    /// <summary>A GigE camera can disappear at any time (cable pulled, PoE
+    /// switch rebooted, power cut) -- once pylon reports it removed, that
+    /// Camera object is dead for good. Opening only once in the constructor
+    /// left the lane stuck on "physically removed" until the whole service
+    /// was restarted, so a watchdog re-opens it by serial as soon as it's
+    /// reachable again (also covering a camera that wasn't connected yet at
+    /// startup).</summary>
     public BaslerAreaScanCamera(string deviceSerial)
     {
+        _deviceSerial = deviceSerial;
+        lock (_sync)
+        {
+            TryOpen();
+        }
+        _watchdog = new Timer(_ => Watchdog(), null, ReconnectInterval, ReconnectInterval);
+    }
+
+    public bool Available
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return IsUsable;
+            }
+        }
+    }
+
+    private bool IsUsable => _camera != null && _camera.IsOpen && _camera.IsConnected;
+
+    private void Watchdog()
+    {
+        lock (_sync)
+        {
+            if (IsUsable)
+            {
+                return;
+            }
+            if (_camera != null && !_reportedDisconnect)
+            {
+                Console.WriteLine($"BaslerAreaScanCamera: camera (serial='{_deviceSerial}') lost -- will keep retrying every {ReconnectInterval.TotalSeconds:F0}s.");
+                _reportedDisconnect = true;
+            }
+            TryOpen();
+        }
+    }
+
+    /// <summary>Caller must hold _sync.</summary>
+    private void TryOpen()
+    {
+        CloseCamera();
+        Camera? camera = null;
         try
         {
-            _camera = string.IsNullOrWhiteSpace(deviceSerial)
-                ? new Camera()
-                : new Camera(FindBySerial(deviceSerial));
-            _camera.CameraOpened += Configure;
-            _camera.Open();
+            // No "first camera found" fallback -- with several Basler cameras
+            // on one switch that could silently grab the wrong lane's camera.
+            if (string.IsNullOrWhiteSpace(_deviceSerial))
+            {
+                throw new InvalidOperationException("DeviceSerial is not set in Lane Setup.");
+            }
+            camera = new Camera(FindBySerial(_deviceSerial));
+            camera.CameraOpened += Configure;
+            camera.Open();
+            _camera = camera;
+            if (_reportedDisconnect)
+            {
+                Console.WriteLine($"BaslerAreaScanCamera: camera (serial='{_deviceSerial}') reconnected.");
+            }
+            _reportedDisconnect = false;
+            // Reconnected mid-pass -- resume grabbing where the lane worker
+            // left off instead of waiting for the next pass's Start().
+            if (_grabbing)
+            {
+                _camera.StreamGrabber.Start();
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"BaslerAreaScanCamera: failed to open camera (serial='{deviceSerial}'): {ex.Message}");
-            _camera?.Dispose();
+            if (!_reportedDisconnect)
+            {
+                Console.WriteLine($"BaslerAreaScanCamera: failed to open camera (serial='{_deviceSerial}'): {ex.Message}");
+                _reportedDisconnect = true;
+            }
+            camera?.Dispose();
             _camera = null;
         }
     }
 
-    public bool Available => _camera != null;
+    /// <summary>Caller must hold _sync.</summary>
+    private void CloseCamera()
+    {
+        if (_camera == null)
+        {
+            return;
+        }
+        try
+        {
+            _camera.Close();
+        }
+        catch
+        {
+            // Already gone (device removed) -- nothing left to close.
+        }
+        _camera.Dispose();
+        _camera = null;
+    }
 
     private static ICameraInfo FindBySerial(string serial)
     {
@@ -64,6 +162,58 @@ public class BaslerAreaScanCamera : IAreaScanCamera
         {
             return;
         }
+
+        // Start from the factory defaults every time, so whatever was
+        // changed in pylon Viewer (ROI, trigger mode, mirroring, gamma...)
+        // can never leave the camera in a state this pipeline doesn't expect.
+        try
+        {
+            camera.Parameters[PLCamera.UserSetSelector].SetValue(PLCamera.UserSetSelector.Default);
+            camera.Parameters[PLCamera.UserSetLoad].Execute();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"BaslerAreaScanCamera: loading factory defaults failed (continuing with current camera settings): {ex.Message}");
+        }
+
+        // Full 1920x1200 frame, free-running (frames come continuously; the
+        // loop interlock decides which ones belong to a pass), no mirroring.
+        try
+        {
+            camera.Parameters[PLCamera.OffsetX].SetValue(0);
+            camera.Parameters[PLCamera.OffsetY].SetValue(0);
+            camera.Parameters[PLCamera.Width].SetValue(1920);
+            camera.Parameters[PLCamera.Height].SetValue(1200);
+            camera.Parameters[PLCamera.TriggerSelector].SetValue(PLCamera.TriggerSelector.FrameStart);
+            camera.Parameters[PLCamera.TriggerMode].SetValue(PLCamera.TriggerMode.Off);
+            camera.Parameters[PLCamera.ReverseX].SetValue(false);
+            camera.Parameters[PLCamera.ReverseY].SetValue(false);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"BaslerAreaScanCamera: ROI/trigger configuration failed (continuing with camera defaults): {ex.Message}");
+        }
+
+        // Auto brightness, but with exposure capped so a moving chassis
+        // doesn't smear: the camera lengthens exposure up to the cap first,
+        // then adds gain. 2 ms is ~17 mm of motion at 30 km/h; lower the cap
+        // once the under-vehicle illuminator is installed.
+        try
+        {
+            camera.Parameters[PLCamera.AutoFunctionProfile].SetValue(PLCamera.AutoFunctionProfile.MinimizeGain);
+            camera.Parameters[PLCamera.AutoTargetBrightness].SetValue(0.5);
+            camera.Parameters[PLCamera.AutoExposureTimeLowerLimit].SetValue(100.0);
+            camera.Parameters[PLCamera.AutoExposureTimeUpperLimit].SetValue(2000.0);
+            camera.Parameters[PLCamera.AutoGainLowerLimit].SetValue(0.0);
+            camera.Parameters[PLCamera.AutoGainUpperLimit].SetValue(24.0);
+            camera.Parameters[PLCamera.ExposureAuto].SetValue(PLCamera.ExposureAuto.Continuous);
+            camera.Parameters[PLCamera.GainAuto].SetValue(PLCamera.GainAuto.Continuous);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"BaslerAreaScanCamera: auto exposure/gain configuration failed (continuing with camera defaults): {ex.Message}");
+        }
+
         try
         {
             camera.Parameters[PLCamera.PixelFormat].SetValue(PLCamera.PixelFormat.Mono8);
@@ -81,25 +231,64 @@ public class BaslerAreaScanCamera : IAreaScanCamera
         {
             Console.WriteLine($"BaslerAreaScanCamera: AcquisitionMode configuration failed (continuing with camera defaults): {ex.Message}");
         }
+
+        // Jumbo packets: with the default 1500-byte packets the onboard
+        // I219-LM drops packets at full resolution. Needs the PC adapter's
+        // Jumbo Packet set to 9014 (pylon GigE Configurator auto-opt). The
+        // camera forgets this on power cycle, so set it on every open.
+        try
+        {
+            camera.Parameters[PLCamera.GevSCPSPacketSize].SetValue(8192);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"BaslerAreaScanCamera: PacketSize configuration failed (continuing with camera defaults): {ex.Message}");
+        }
+
+        // Fixed 30 fps (comfortably inside GigE bandwidth at full
+        // resolution) and a deep buffer pool, so a momentarily busy grab
+        // loop doesn't drop frames as "incompletely grabbed".
+        try
+        {
+            camera.Parameters[PLCamera.AcquisitionFrameRateEnable].SetValue(true);
+            camera.Parameters[PLCamera.AcquisitionFrameRate].SetValue(30.0);
+            camera.Parameters[PLCameraInstance.MaxNumBuffer].SetValue(64);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"BaslerAreaScanCamera: frame rate/buffer configuration failed (continuing with camera defaults): {ex.Message}");
+        }
     }
 
     public void Start()
     {
-        if (_camera == null)
+        lock (_sync)
         {
-            return;
-        }
-        try
-        {
-            _camera.StreamGrabber.Start();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"BaslerAreaScanCamera: Start failed: {ex.Message}");
+            _grabbing = true;
+            if (!IsUsable)
+            {
+                return;
+            }
+            try
+            {
+                _camera!.StreamGrabber.Start();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"BaslerAreaScanCamera: Start failed: {ex.Message}");
+            }
         }
     }
 
     public Mat? GrabFrame(int timeoutMs = 200)
+    {
+        lock (_sync)
+        {
+            return GrabFrameLocked(timeoutMs);
+        }
+    }
+
+    private Mat? GrabFrameLocked(int timeoutMs)
     {
         if (_camera == null || !_camera.StreamGrabber.IsGrabbing)
         {
@@ -107,8 +296,20 @@ public class BaslerAreaScanCamera : IAreaScanCamera
         }
         try
         {
+            // TimeoutHandling.Return hands back null (not a failed result)
+            // when no frame arrived within timeoutMs -- a normal outcome
+            // here, not an error.
             using var result = _camera.StreamGrabber.RetrieveResult(timeoutMs, TimeoutHandling.Return);
-            return result.GrabSucceeded ? GrabResultToMat(result) : null;
+            if (result == null)
+            {
+                return null;
+            }
+            if (!result.GrabSucceeded)
+            {
+                Console.WriteLine($"BaslerAreaScanCamera: grab failed: {result.ErrorDescription}");
+                return null;
+            }
+            return GrabResultToMat(result);
         }
         catch (TimeoutException)
         {
@@ -133,29 +334,36 @@ public class BaslerAreaScanCamera : IAreaScanCamera
         var width = (int)result.Width;
         var height = Math.Max((int)result.Height, 1);
         var buffer = result.PixelData as byte[] ?? Array.Empty<byte>();
-        using var gray = new Mat(height, width, MatType.CV_8UC1);
+        // Returned as single-channel Mono8 -- this runs once per frame at the
+        // camera's full rate, and expanding every frame to 3-channel BGR here
+        // was enough extra work to fall behind the camera (buffers overflow,
+        // frames arrive "incompletely grabbed"). Consumers that need BGR
+        // convert the one image they actually use.
+        var gray = new Mat(height, width, MatType.CV_8UC1);
         if (buffer.Length > 0)
         {
-            System.Runtime.InteropServices.Marshal.Copy(buffer, 0, gray.Data, buffer.Length);
+            System.Runtime.InteropServices.Marshal.Copy(buffer, 0, gray.Data, Math.Min(buffer.Length, width * height));
         }
-        var bgr = new Mat();
-        Cv2.CvtColor(gray, bgr, ColorConversionCodes.GRAY2BGR);
-        return bgr;
+        return gray;
     }
 
     public void Stop()
     {
-        if (_camera == null)
+        lock (_sync)
         {
-            return;
-        }
-        try
-        {
-            _camera.StreamGrabber.Stop();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"BaslerAreaScanCamera: Stop failed: {ex.Message}");
+            _grabbing = false;
+            if (_camera == null)
+            {
+                return;
+            }
+            try
+            {
+                _camera.StreamGrabber.Stop();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"BaslerAreaScanCamera: Stop failed: {ex.Message}");
+            }
         }
     }
 }

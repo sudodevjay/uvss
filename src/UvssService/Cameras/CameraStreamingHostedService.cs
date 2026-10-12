@@ -23,7 +23,6 @@ public class CameraStreamingHostedService : BackgroundService
     private readonly LaneStateStore _stateStore;
     private readonly AnprFrameHub _anprFrameHub;
     private readonly DriverFrameHub _driverFrameHub;
-    private readonly SimulatedVehicleSlotStore _vehicleSlotStore;
 
     public CameraStreamingHostedService(
         LaneConfigStore laneConfigStore,
@@ -32,8 +31,7 @@ public class CameraStreamingHostedService : BackgroundService
         CameraStatusRegistry statusRegistry,
         LaneStateStore stateStore,
         AnprFrameHub anprFrameHub,
-        DriverFrameHub driverFrameHub,
-        SimulatedVehicleSlotStore vehicleSlotStore)
+        DriverFrameHub driverFrameHub)
     {
         _lanes = laneConfigStore.Lanes.Where(l => l.Enabled).ToList();
         _cameraDefaults = cameraDefaults.Value;
@@ -42,7 +40,6 @@ public class CameraStreamingHostedService : BackgroundService
         _stateStore = stateStore;
         _anprFrameHub = anprFrameHub;
         _driverFrameHub = driverFrameHub;
-        _vehicleSlotStore = vehicleSlotStore;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -51,12 +48,11 @@ public class CameraStreamingHostedService : BackgroundService
         foreach (var lane in _lanes)
         {
             var state = _stateStore.GetOrCreate(lane.Name);
-            var vehicleSlot = _vehicleSlotStore.GetOrCreate(lane.Name);
-            tasks.Add(StreamCameraAsync(lane.Name, "driver", IpCameraFactory.Create(lane.DriverCamera, _cameraDefaults, vehicleSlot),
+            tasks.Add(StreamCameraAsync(lane.Name, "driver", IpCameraFactory.Create(lane.DriverCamera, _cameraDefaults),
                 state.SetDriverFrame, frame => _driverFrameHub.Publish(lane.Name, frame), stoppingToken));
-            tasks.Add(StreamCameraAsync(lane.Name, "anpr", IpCameraFactory.Create(lane.AnprCamera, _cameraDefaults, vehicleSlot),
+            tasks.Add(StreamCameraAsync(lane.Name, "anpr", IpCameraFactory.Create(lane.AnprCamera, _cameraDefaults),
                 state.SetAnprFrame, frame => _anprFrameHub.Publish(lane.Name, frame), stoppingToken));
-            tasks.Add(StreamCameraAsync(lane.Name, "overview", IpCameraFactory.Create(lane.OverviewCamera, _cameraDefaults, vehicleSlot),
+            tasks.Add(StreamCameraAsync(lane.Name, "overview", IpCameraFactory.Create(lane.OverviewCamera, _cameraDefaults),
                 state.SetOverviewFrame, null, stoppingToken));
         }
         await Task.WhenAll(tasks);
