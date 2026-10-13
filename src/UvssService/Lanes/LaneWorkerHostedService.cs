@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using OpenCvSharp;
@@ -176,6 +177,10 @@ public class LaneWorkerHostedService : BackgroundService
         // it's built, before this lane's first pass ever runs.
         _interlockRegistry.Register(lane.Name, interlock);
 
+        lane.BaslerCamera.RoiOffsetX = _areaScan.RoiOffsetX;
+        lane.BaslerCamera.RoiWidth = _areaScan.RoiWidth;
+        lane.BaslerCamera.RoiOffsetY = _areaScan.RoiOffsetY;
+        lane.BaslerCamera.RoiHeight = _areaScan.RoiHeight;
         var areaScanCamera = AreaScanCameraFactory.Create(lane.BaslerCamera);
         // So Lane Setup's UVSS Camera Status column can read .Available by
         // lane name (see AreaScanCameraRegistry's own remarks).
@@ -192,6 +197,8 @@ public class LaneWorkerHostedService : BackgroundService
             MaxFramesPerPass = _areaScan.MaxFramesPerPass,
             ReferenceRowsPerMetre = _areaScan.ReferenceRowsPerMetre,
             DebugPreviewDir = string.IsNullOrWhiteSpace(_areaScan.DebugPreviewDir) ? "" : ResolvePath(_areaScan.DebugPreviewDir),
+            DebugRecordRawFrames = _areaScan.DebugRecordRawFrames,
+            TravelDirection = ParseTravelDirection(_areaScan.TravelDirection),
             StorageEnabled = _storage.Enabled,
             DriverImageDir = ResolvePath(_storage.DriverImageDir),
             AnprImageDir = ResolvePath(_storage.AnprImageDir),
@@ -356,12 +363,36 @@ public class LaneWorkerHostedService : BackgroundService
     /// 2 entries with Completed==false means it engaged but never cleared
     /// (ExitClearTime stays null) -- two different fault stories, logged
     /// differently by RunOnePassAsync.</summary>
+    private static TravelDirection ParseTravelDirection(string value)
+    {
+        if (Enum.TryParse<TravelDirection>(value, ignoreCase: true, out var direction))
+        {
+            return direction;
+        }
+        Console.WriteLine($"AreaScan:TravelDirection '{value}' is not Auto/Up/Down/Left/Right -- using Auto.");
+        return TravelDirection.Auto;
+    }
+
     private record CaptureResult(FrameMosaic Mosaic, List<DateTime> LoopTimes, DateTime? ExitClearTime, bool Completed);
 
     private static async Task<CaptureResult> CapturePassAsync(LaneRuntime lane, DateTime entryTime, CancellationToken ct)
     {
         lane.AreaScanCamera.Start();
-        var mosaic = new FrameMosaic();
+        // Blank the live view: the last pass's finished image would otherwise
+        // stay up until this pass's first strip arrives, then get replaced
+        // by a thin strip -- which looks like the scan restarting.
+        lane.State.SetUnderVehicleImage(null);
+        lane.State.SetHighlightedUnderVehicleImage(null);
+        // FrameMosaic measures motion along the frame's rows; a lane whose
+        // vehicles cross the image sideways gets each frame transposed first.
+        var sideways = lane.TravelDirection is TravelDirection.Left or TravelDirection.Right;
+        var mosaic = new FrameMosaic(lane.TravelDirection switch
+        {
+            TravelDirection.Up or TravelDirection.Left => -1,
+            TravelDirection.Down or TravelDirection.Right => 1,
+            _ => 0,
+        });
+        using var transposed = new Mat();
         var mosaicChanged = false;
         var loopTimes = new List<DateTime> { entryTime };
         var lastUiUpdate = DateTime.UtcNow;
@@ -372,6 +403,9 @@ public class LaneWorkerHostedService : BackgroundService
             Directory.CreateDirectory(debugDir);
             Console.WriteLine($"[{lane.Name}] recording live previews to {debugDir}");
         }
+        await using var rawRecorder = debugDir != null && lane.DebugRecordRawFrames
+            ? new RawFrameRecorder(Path.Combine(debugDir, "raw"))
+            : null;
         var debugIndex = 0;
         var totalLoops = lane.Interlock.LoopPositionsMetres.Count;
         var exitLoopIndex = totalLoops - 1;
@@ -384,6 +418,36 @@ public class LaneWorkerHostedService : BackgroundService
         DateTime? exitClearTime = null;
         var completed = false;
 
+        // Grabbing runs on its own task and never waits for processing: when
+        // the mosaic (optical flow, live-preview encoding) fell behind the
+        // camera, pylon's buffers filled up and frames arrived "incompletely
+        // grabbed" -- whole passes ran at ~13 fps. Now only the newest frame
+        // is kept for processing; any older one still waiting is skipped.
+        // Skipping is harmless: the flow between the processed frames still
+        // covers all the motion in between.
+        var skippedFrames = 0;
+        var frames = Channel.CreateBounded<Mat>(
+            new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = true },
+            dropped =>
+            {
+                dropped.Dispose();
+                Interlocked.Increment(ref skippedFrames);
+            });
+        using var grabCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var grabTask = Task.Run(() =>
+        {
+            while (!grabCts.IsCancellationRequested)
+            {
+                var frame = lane.AreaScanCamera.GrabFrame(200);
+                if (frame == null)
+                {
+                    continue;
+                }
+                rawRecorder?.Add(frame);
+                frames.Writer.TryWrite(frame);
+            }
+        });
+
         try
         {
             while (!ct.IsCancellationRequested)
@@ -394,12 +458,23 @@ public class LaneWorkerHostedService : BackgroundService
                     break;
                 }
 
-                using (var frame = lane.AreaScanCamera.GrabFrame(200))
+                if (frames.Reader.TryRead(out var frame))
                 {
-                    if (frame != null && mosaic.Add(frame))
+                    using (frame)
                     {
-                        mosaicChanged = true;
+                        if (sideways)
+                        {
+                            Cv2.Transpose(frame, transposed);
+                        }
+                        if (mosaic.Add(sideways ? transposed : frame))
+                        {
+                            mosaicChanged = true;
+                        }
                     }
+                }
+                else
+                {
+                    await Task.Delay(2, ct);
                 }
 
                 if (mosaicChanged && DateTime.UtcNow - lastUiUpdate >= LiveStitchUpdateInterval)
@@ -440,7 +515,17 @@ public class LaneWorkerHostedService : BackgroundService
         }
         finally
         {
+            grabCts.Cancel();
+            await grabTask;
+            while (frames.Reader.TryRead(out var leftover))
+            {
+                leftover.Dispose();
+            }
             lane.AreaScanCamera.Stop();
+        }
+        if (skippedFrames > 0)
+        {
+            Console.WriteLine($"[{lane.Name}] processing fell behind the camera -- skipped {skippedFrames} frame(s) (motion between them is still measured).");
         }
         return new CaptureResult(mosaic, loopTimes, exitClearTime, completed);
     }
@@ -518,8 +603,8 @@ public class LaneWorkerHostedService : BackgroundService
         );
         var m = capture.Mosaic;
         Console.WriteLine(
-            $"[{lane.Name}] mosaic stats -- rejected: lowTexture={m.RejectedLowTexture} lowResponse={m.RejectedLowResponse} "
-            + $"noMotion={m.RejectedNoMotion}; motion |dx|={m.TotalAbsDx:F0}px |dy|={m.TotalAbsDy:F0}px; kept {m.MosaicRows} rows"
+            $"[{lane.Name}] mosaic stats -- frames without motion={m.RejectedNoMotion}; "
+            + $"motion |dx|={m.TotalAbsDx:F0}px |dy|={m.TotalAbsDy:F0}px; kept {m.MosaicRows} rows"
         );
 
         // Reported downstream (LaneState.LastRowCount) as the total scan
@@ -819,6 +904,8 @@ public class LaneWorkerHostedService : BackgroundService
         public required int MaxFramesPerPass { get; init; }
         public required int ReferenceRowsPerMetre { get; init; }
         public required string DebugPreviewDir { get; init; }
+        public bool DebugRecordRawFrames { get; init; }
+        public TravelDirection TravelDirection { get; init; }
         public required bool StorageEnabled { get; init; }
         public required string DriverImageDir { get; init; }
         public required string AnprImageDir { get; init; }
@@ -838,4 +925,15 @@ public class LaneWorkerHostedService : BackgroundService
         public bool Available => false;
         public List<ForeignObjectDetection> Detect(Mat image) => new();
     }
+}
+
+/// <summary>Which way vehicles move across the UVSS camera image (as seen in
+/// pylon Viewer) -- see AreaScanOptions.TravelDirection.</summary>
+public enum TravelDirection
+{
+    Auto,
+    Up,
+    Down,
+    Left,
+    Right,
 }

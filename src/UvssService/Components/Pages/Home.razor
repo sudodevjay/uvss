@@ -26,9 +26,7 @@
         var selectedId = _selectedEntryId.TryGetValue(lane.LaneName, out var sid) ? sid : null;
         var heroGrowing = view.IsLive && lane.Status == "Active";
         var heroBoxClasses = heroGrowing ? "flex justify-end" : "flex justify-center items-center";
-        var heroImgClasses = heroGrowing ? "h-full w-auto block shrink-0" : "w-full h-full object-contain block";
         var heroZoom = GetZoom(lane.LaneName);
-        var heroZoomOrigin = heroGrowing ? "right center" : "center center";
 
         <section class="flex-1 flex flex-col gap-1 min-h-0 bg-[#ececec] border border-[#ccc] m-0 p-1 box-border">
 
@@ -55,9 +53,8 @@
                      the box, only the newest (rightmost) columns stay visible
                      and the oldest ones scroll off the left -- same as a real
                      UVSS operator console. Once the pass is complete (or a
-                     historical pass is being reviewed), it switches to
-                     object-contain so the *whole* finished image is visible
-                     regardless of vehicle length. -->
+                     historical pass is being reviewed), it is stretched over the
+                     whole box so the entire scan is visible at once. -->
                 <div class="col-start-1 col-end-4 row-start-1 relative min-w-0 min-h-0 overflow-hidden bg-[#e2e2e2] @heroBoxClasses">
                     @if (view.IsLive && GetManualTrigger(lane.LaneName) is { } manualTrigger)
                     {
@@ -110,8 +107,23 @@
                         }
                         else
                         {
-                            <img class="@heroImgClasses" style="transform: scale(@heroZoom.ToString(CultureInfo.InvariantCulture)); transform-origin: @heroZoomOrigin;"
-                                 src="@ToDataUrl(uvJpeg)" alt="under-vehicle scan" />
+                            @if (heroGrowing)
+                            {
+                                <img class="h-full w-auto block shrink-0" style="transform: scale(@heroZoom.ToString(CultureInfo.InvariantCulture)); transform-origin: right center;"
+                                     src="@ToDataUrl(uvJpeg)" alt="under-vehicle scan" />
+                            }
+                            else
+                            {
+                                <!-- Finished scan: the WHOLE image stretched
+                                     over the whole box, like a UVSS console's
+                                     chassis view. contain left a short pass as
+                                     a thin strip in the middle; fit-to-width
+                                     showed only a blown-up slice of it. A real
+                                     vehicle is already about the box's shape,
+                                     so the stretch is small; zoom for detail. -->
+                                <img class="w-full h-full object-fill block" style="transform: scale(@heroZoom.ToString(CultureInfo.InvariantCulture));"
+                                     src="@ToDataUrl(uvJpeg)" alt="under-vehicle scan" />
+                            }
                         }
 
                         <!-- Floating tool strip over the scan's right edge --
@@ -207,7 +219,7 @@
                     }
                     else
                     {
-                        <div class="w-full h-full flex items-center justify-center bg-[#e2e2e2] text-[#777] text-[0.8rem]">waiting for a pass</div>
+                        <div class="w-full h-full flex items-center justify-center bg-[#e2e2e2] text-[#777] text-[0.8rem]">@(heroGrowing ? "scanning -- waiting for movement" : "waiting for a pass")</div>
                     }
                 </div>
 

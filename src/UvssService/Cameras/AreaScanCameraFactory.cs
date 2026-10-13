@@ -9,7 +9,7 @@ public static class AreaScanCameraFactory
         // Real hardware only -- a mistyped Source fails loudly at startup.
         return options.Source.Trim().ToLowerInvariant() switch
         {
-            "pylon" => new BaslerAreaScanCamera(options.DeviceSerial),
+            "pylon" => new BaslerAreaScanCamera(options),
             _ => throw new InvalidOperationException(
                 $"Unsupported UVSS camera Source '{options.Source}' -- only \"pylon\" (real Basler camera) is allowed."),
         };

@@ -62,6 +62,14 @@ public class BaslerCameraOptions
     /// <summary>"pylon" -- the real Basler camera (the only supported source).</summary>
     public string Source { get; set; } = "pylon";
     public string DeviceSerial { get; set; } = "";
+
+    /// <summary>Sensor ROI: only the area the vehicle actually passes over
+    /// is grabbed, so walls/lights around it never reach the mosaic. A size
+    /// of 0 = the full sensor in that direction. Set from AreaScan:Roi*.</summary>
+    public int RoiOffsetX { get; set; }
+    public int RoiWidth { get; set; }
+    public int RoiOffsetY { get; set; }
+    public int RoiHeight { get; set; }
 }
 
 /// <summary>The interlock config for one lane: a row of N full-lane-width

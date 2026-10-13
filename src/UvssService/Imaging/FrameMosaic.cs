@@ -3,44 +3,30 @@ using OpenCvSharp;
 namespace UvssService.Imaging;
 
 /// <summary>Builds the under-vehicle image from a free-running AREA-scan
-/// camera. Every grab is a whole 2D view (1920x1200), so stacking raw frames
-/// just repeats the same scene over and over. Instead each new frame is
-/// registered against the previous one (phase correlation, on a downscaled
-/// copy for speed) to find how many rows the scene moved, and only that many
-/// NEW rows are added -- the band that just crossed the frame's centre line. A stopped
-/// vehicle adds nothing; a slow one adds a thin strip per frame; a fast one a
-/// thick strip. Only the strips are kept, never the full frames, so memory
-/// grows with the vehicle's length, not with pass duration.
+/// camera. Every grab is a whole 2D view, so stacking raw frames just
+/// repeats the same scene over and over. Instead the motion of the scene
+/// between grabs is measured (DisMotionEstimator -- dense optical flow,
+/// which follows only the part of the view that moves) and only that many
+/// NEW rows are added -- the band that just crossed the frame's centre line.
+/// A stopped vehicle adds nothing; a slow one adds a thin strip per frame; a
+/// fast one a thick strip. Only the strips are kept, never the full frames,
+/// so memory grows with the vehicle's length, not with pass duration.
 ///
-/// Direction is taken from the image itself: content moving up means new
+/// Motion is measured along the frame's rows: content moving up means new
 /// rows enter at the bottom (appended), moving down means they enter at the
 /// top (prepended). Lateral (x) shift is ignored -- vehicles drive straight
-/// over the camera.</summary>
+/// over the camera. A lane whose vehicles cross the image sideways passes
+/// transposed frames in.</summary>
 public sealed class FrameMosaic : IDisposable
 {
-    /// <summary>Registration runs on a copy scaled to this fraction -- plenty
-    /// of texture for phase correlation, ~16x cheaper than full resolution.</summary>
-    private const double RegistrationScale = 0.25;
-
     /// <summary>Per-frame shifts below this (full-res pixels) count as "no
-    /// motion" in the diagnostics only -- they are still accumulated, since
-    /// each frame is measured against a fixed reference (see _refSmall).</summary>
+    /// motion" in the diagnostics only.</summary>
     private const double MotionDeadbandPx = 0.5;
 
-    /// <summary>Once the scene has moved this far (full-res rows) from the
-    /// reference frame, the current frame becomes the new reference -- phase
-    /// correlation gets unreliable as the overlap shrinks.</summary>
-    private const double ReferenceResetRows = 100;
-
-    /// <summary>Below this phase-correlation peak response the match is not
-    /// trustworthy (featureless or blurred view) -- that frame adds nothing.
-    /// Pure sensor noise in a dark scene still peaks around 0.05-0.1.</summary>
-    private const double MinResponse = 0.15;
-
-    /// <summary>A view this flat (grey-level std dev, e.g. lens covered or
-    /// pointing into darkness) has nothing to register against -- any
-    /// "shift" found is noise, so it adds nothing.</summary>
-    private const double MinTextureStdDev = 3.0;
+    /// <summary>Most backward motion (rows) remembered as debt -- enough to
+    /// cancel noise on a still scene, small enough that a bad reading can't
+    /// stall the image.</summary>
+    private const double MaxBackwardDebtRows = 48;
 
     /// <summary>Net movement (full-res rows) needed before the travel
     /// direction is locked. Hand jitter or vibration flips the sign of tiny
@@ -52,26 +38,26 @@ public sealed class FrameMosaic : IDisposable
 
     private readonly List<Mat> _top = new();    // prepended strips, in arrival order
     private readonly List<Mat> _bottom = new(); // appended strips, in arrival order
+    private readonly DisMotionEstimator _motion = new();
     private Mat? _first;
-    /// <summary>Registration reference. Each frame is measured against this
-    /// fixed frame, not the previous one: a slow scene moves well under a
-    /// pixel per frame, and frame-to-frame those sub-pixel shifts were either
-    /// thrown away as noise or summed up noise into drift. Against a fixed
-    /// reference slow motion keeps adding up and a still scene stays put.</summary>
-    private Mat? _refSmall;
-    private Point2d _refShift; // last measured shift of the scene vs _refSmall (full-res px)
-    private Mat? _window;
     private double _pendingRows;
 
     /// <summary>0 until locked; then -1 (scene moves up, rows appended at the
     /// bottom) or +1 (scene moves down, rows prepended at the top).</summary>
     private int _direction;
 
+    /// <summary>`direction`: 0 = decide from the first sustained movement
+    /// (see DirectionLockRows); -1 = the scene moves up the frame, +1 = down.
+    /// A lane's direction of travel is fixed by the installation, and
+    /// auto-locking was fooled by whatever moved first (a hand, a head).</summary>
+    public FrameMosaic(int direction = 0)
+    {
+        _direction = Math.Sign(direction);
+    }
+
     public int FrameCount { get; private set; }
 
     // Per-pass diagnostics -- why frames did or didn't add rows.
-    public int RejectedLowTexture { get; private set; }
-    public int RejectedLowResponse { get; private set; }
     public int RejectedNoMotion { get; private set; }
     public double TotalAbsDx { get; private set; }
     public double TotalAbsDy { get; private set; }
@@ -96,45 +82,13 @@ public sealed class FrameMosaic : IDisposable
         FrameCount++;
         RowsGrabbed += frame.Rows;
 
-        var small = ToRegistrationImage(frame);
-        if (_first == null || _refSmall == null)
+        var motion = _motion.Next(frame);
+        if (_first == null)
         {
             _first = frame.Clone();
-            _refSmall = small;
-            _refShift = default;
-            _window = new Mat();
-            Cv2.CreateHanningWindow(_window, small.Size(), MatType.CV_32F);
             return true;
         }
-
-        Cv2.MeanStdDev(small, out _, out var stdDev);
-        if (stdDev.Val0 < MinTextureStdDev)
-        {
-            RejectedLowTexture++;
-            ReplaceReference(small);
-            return false;
-        }
-        var raw = Cv2.PhaseCorrelate(_refSmall, small, _window!, out var response);
-        if (response < MinResponse)
-        {
-            // Lost track of the reference (too far moved, or blurred) --
-            // restart from this frame; the motion in between is lost.
-            RejectedLowResponse++;
-            ReplaceReference(small);
-            return false;
-        }
-        var shift = new Point2d(raw.X / RegistrationScale, raw.Y / RegistrationScale);
-        var dx = shift.X - _refShift.X;
-        var dy = shift.Y - _refShift.Y;
-        _refShift = shift;
-        if (Math.Abs(shift.Y) >= ReferenceResetRows)
-        {
-            ReplaceReference(small);
-        }
-        else
-        {
-            small.Dispose();
-        }
+        var (dx, dy) = motion ?? (0, 0);
         TotalAbsDx += Math.Abs(dx);
         TotalAbsDy += Math.Abs(dy);
         if (Math.Abs(dy) < MotionDeadbandPx)
@@ -156,10 +110,12 @@ public sealed class FrameMosaic : IDisposable
         }
         else
         {
-            // Locked: movement the other way builds up a debt, so backing
-            // up over already-captured content adds nothing until the scene
-            // is past the furthest point captured so far.
-            _pendingRows += dy * _direction;
+            // Locked: movement the other way builds up a debt, so jitter
+            // back and forth cancels out instead of growing the image. The
+            // debt is capped: one bad reading (a large bogus backward shift)
+            // used to swallow all forward motion after it, freezing the
+            // image -- live view included -- for the rest of the pass.
+            _pendingRows = Math.Max(_pendingRows + dy * _direction, -MaxBackwardDebtRows);
         }
 
         var rows = (int)Math.Truncate(_pendingRows);
@@ -222,17 +178,15 @@ public sealed class FrameMosaic : IDisposable
     /// <summary>Just the newest ~`maxRows` rows of the mosaic (caller
     /// disposes) -- for the live preview, which only ever shows the newest
     /// end anyway. Re-encoding the whole growing mosaic every update stalled
-    /// the grab loop long enough for the camera's buffers to overflow.</summary>
+    /// the grab loop long enough for the camera's buffers to overflow.
+    /// Null until something has moved: showing the whole first frame and
+    /// then swapping it for the first thin strip looked like a restart.</summary>
     public Mat? BuildRecent(int maxRows)
     {
-        if (_first == null)
-        {
-            return null;
-        }
         var newest = NewestAtTop ? _top : _bottom;
         if (newest.Count == 0)
         {
-            return _first.Clone();
+            return null;
         }
         var parts = new List<Mat>();
         var rows = 0;
@@ -251,36 +205,10 @@ public sealed class FrameMosaic : IDisposable
         return merged;
     }
 
-    private void ReplaceReference(Mat small)
-    {
-        _refSmall?.Dispose();
-        _refSmall = small;
-        _refShift = default;
-    }
-
-    private static Mat ToRegistrationImage(Mat frame)
-    {
-        using var resized = new Mat();
-        if (frame.Channels() == 1)
-        {
-            Cv2.Resize(frame, resized, new Size(), RegistrationScale, RegistrationScale, InterpolationFlags.Area);
-        }
-        else
-        {
-            using var gray = new Mat();
-            Cv2.CvtColor(frame, gray, ColorConversionCodes.BGR2GRAY);
-            Cv2.Resize(gray, resized, new Size(), RegistrationScale, RegistrationScale, InterpolationFlags.Area);
-        }
-        var result = new Mat();
-        resized.ConvertTo(result, MatType.CV_32F);
-        return result;
-    }
-
     public void Dispose()
     {
         _first?.Dispose();
-        _refSmall?.Dispose();
-        _window?.Dispose();
+        _motion.Dispose();
         foreach (var strip in _top.Concat(_bottom))
         {
             strip.Dispose();

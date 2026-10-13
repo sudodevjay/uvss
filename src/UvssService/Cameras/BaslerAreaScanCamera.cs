@@ -1,4 +1,5 @@
 using OpenCvSharp;
+using UvssService.Config;
 #if PYLON_AVAILABLE
 using Basler.Pylon;
 #endif
@@ -28,6 +29,7 @@ public class BaslerAreaScanCamera : IAreaScanCamera
     private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(5);
 
     private readonly string _deviceSerial;
+    private readonly BaslerCameraOptions _roi; // Roi* sizes of 0 = full sensor
     // Every touch of _camera goes through this lock -- the watchdog timer
     // may dispose/replace it while the lane worker is mid-GrabFrame.
     private readonly object _sync = new();
@@ -43,9 +45,10 @@ public class BaslerAreaScanCamera : IAreaScanCamera
     /// was restarted, so a watchdog re-opens it by serial as soon as it's
     /// reachable again (also covering a camera that wasn't connected yet at
     /// startup).</summary>
-    public BaslerAreaScanCamera(string deviceSerial)
+    public BaslerAreaScanCamera(BaslerCameraOptions options)
     {
-        _deviceSerial = deviceSerial;
+        _deviceSerial = options.DeviceSerial;
+        _roi = options;
         lock (_sync)
         {
             TryOpen();
@@ -153,6 +156,18 @@ public class BaslerAreaScanCamera : IAreaScanCamera
         return match;
     }
 
+    /// <summary>Sets one ROI axis: offset 0 first so any size fits, then the
+    /// size (0 = sensor maximum), then the offset clamped so offset + size
+    /// stays on the sensor. Both snap to the camera's increments.</summary>
+    private static void SetRoiAxis(Camera camera, IntegerName offsetName, IntegerName sizeName, int offset, int size)
+    {
+        camera.Parameters[offsetName].SetValue(0);
+        var max = camera.Parameters[sizeName].GetMaximum();
+        camera.Parameters[sizeName].SetValue(size > 0 ? Math.Min(size, max) : max, IntegerValueCorrection.Nearest);
+        var actual = camera.Parameters[sizeName].GetValue();
+        camera.Parameters[offsetName].SetValue(Math.Clamp(offset, 0, max - actual), IntegerValueCorrection.Nearest);
+    }
+
     /// <summary>Runs once, right after Camera.Open() -- the documented
     /// pylon .NET pattern for setting acquisition parameters before
     /// grabbing starts.</summary>
@@ -176,14 +191,16 @@ public class BaslerAreaScanCamera : IAreaScanCamera
             Console.WriteLine($"BaslerAreaScanCamera: loading factory defaults failed (continuing with current camera settings): {ex.Message}");
         }
 
-        // Full 1920x1200 frame, free-running (frames come continuously; the
-        // loop interlock decides which ones belong to a pass), no mirroring.
+        // Only the configured ROI (the area the vehicle passes over),
+        // free-running (frames come continuously; the loop interlock decides
+        // which ones belong to a pass), no mirroring.
         try
         {
-            camera.Parameters[PLCamera.OffsetX].SetValue(0);
-            camera.Parameters[PLCamera.OffsetY].SetValue(0);
-            camera.Parameters[PLCamera.Width].SetValue(1920);
-            camera.Parameters[PLCamera.Height].SetValue(1200);
+            SetRoiAxis(camera, PLCamera.OffsetX, PLCamera.Width, _roi.RoiOffsetX, _roi.RoiWidth);
+            SetRoiAxis(camera, PLCamera.OffsetY, PLCamera.Height, _roi.RoiOffsetY, _roi.RoiHeight);
+            Console.WriteLine(
+                $"BaslerAreaScanCamera: ROI offsetX={camera.Parameters[PLCamera.OffsetX].GetValue()} width={camera.Parameters[PLCamera.Width].GetValue()} " +
+                $"offsetY={camera.Parameters[PLCamera.OffsetY].GetValue()} height={camera.Parameters[PLCamera.Height].GetValue()}.");
             camera.Parameters[PLCamera.TriggerSelector].SetValue(PLCamera.TriggerSelector.FrameStart);
             camera.Parameters[PLCamera.TriggerMode].SetValue(PLCamera.TriggerMode.Off);
             camera.Parameters[PLCamera.ReverseX].SetValue(false);
@@ -379,7 +396,7 @@ public class BaslerAreaScanCamera : IAreaScanCamera
 /// real implementation above automatically, no code changes needed here.</summary>
 public class BaslerAreaScanCamera : IAreaScanCamera
 {
-    public BaslerAreaScanCamera(string deviceSerial)
+    public BaslerAreaScanCamera(BaslerCameraOptions options)
     {
         Console.WriteLine(
             "BaslerAreaScanCamera: built without the pylon SDK (PYLON_AVAILABLE not defined) -- "

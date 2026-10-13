@@ -50,6 +50,22 @@ public class AreaScanOptions
     /// this is a much smaller number than the old line-count cap.</summary>
     public int MaxFramesPerPass { get; set; } = 2000;
 
+    /// <summary>ROI of the UVSS camera, same meaning as pylon Viewer's
+    /// Offset X / Width / Offset Y / Height. A size of 0 = the full sensor in
+    /// that direction. Values snap to the camera's increments. Keep the
+    /// height generous: motion is measured along it, so a short ROI limits
+    /// how fast a vehicle can be tracked.</summary>
+    public int RoiOffsetX { get; set; }
+    public int RoiWidth { get; set; }
+    public int RoiOffsetY { get; set; }
+    public int RoiHeight { get; set; }
+
+    /// <summary>Which way a vehicle moves across the camera image, as seen
+    /// in pylon Viewer: "Up", "Down", "Left", "Right", or "Auto" (up/down,
+    /// guessed from the first sustained movement each pass). Fixed by the
+    /// installation -- set it once the camera is mounted.</summary>
+    public string TravelDirection { get; set; } = "Auto";
+
     /// <summary>Target rows-per-metre for the final stitched under-vehicle
     /// image, used to rescale each pass to a known physical scale (see
     /// FrameStitcher.NormalizeHeight) -- a property of the desired OUTPUT
@@ -62,6 +78,11 @@ public class AreaScanOptions
     /// DebugPreviewDir/&lt;lane&gt;_&lt;pass time&gt;/, so the progressive image can
     /// be reviewed afterwards. Empty (the default) = off.</summary>
     public string DebugPreviewDir { get; set; } = "";
+
+    /// <summary>Debugging aid (needs DebugPreviewDir): also write every raw
+    /// grabbed frame under &lt;pass dir&gt;/raw/ so the pass can be replayed
+    /// through FrameMosaic offline. ~100 MB per 10 s pass.</summary>
+    public bool DebugRecordRawFrames { get; set; }
 }
 
 public class LoopSensorDefaultsOptions
